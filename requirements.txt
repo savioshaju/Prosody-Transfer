@@ -1,0 +1,3 @@
+mlmorph>=1.4.3
+torch>=2.0.0
+transformers>=4.20.0

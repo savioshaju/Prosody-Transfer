@@ -1,0 +1,67 @@
+# ==============================================
+# Byte-compiled / optimized / DLL files
+# ==============================================
+__pycache__/
+*.py[cod]
+*$py.class
+test/
+awesome-align/
+
+# ==============================================
+# Virtual Environments
+# ==============================================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==============================================
+# Large Model Weights, Wheels & Checkpoints
+# ==============================================
+*.whl
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.ckpt
+*.h5
+*.tflite
+*.joblib
+*.pkl
+
+# Hugging Face & Transformer caches
+.cache/
+hf_cache/
+
+# ==============================================
+# Pipeline Outputs & Test Result Logs
+# ==============================================
+*_results.txt
+*.log
+output/
+outputs/
+results/
+logs/
+
+# ==============================================
+# Editor & OS Specific Files
+# ==============================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Antigravity IDE / Gemini local config
+.gemini/
+.agents/
