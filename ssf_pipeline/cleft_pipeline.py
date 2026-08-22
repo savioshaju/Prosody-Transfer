@@ -465,6 +465,10 @@ class CleftPipeline:
         if main_verb and normalized_verb is not None and main_verb != focus_word and main_verb != copula_form:
             cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
 
+        # If copula_form already carries the cleft copula, strip any orphaned background detached 'ആണ്'
+        if copula_form.endswith("ആണ്") or copula_form.endswith("ാണ്"):
+            cleft_sentence = re.sub(r"(?<!\S)ആണ്(?!\S)", "", cleft_sentence)
+
         # Normalize whitespace and punctuation
         cleft_sentence = re.sub(r"\s+([.,!?;:])", r"\1", cleft_sentence)
         cleft_sentence = re.sub(r"\s+", " ", cleft_sentence).strip()
@@ -647,39 +651,17 @@ class CleftPipeline:
         """
         Determine whether the focused constituent is eligible for Malayalam clefting
         following the priority order:
-        1. Hard grammatical blockers
-        2. Dependency/syntactic role
-        3. Morphological case
-        4. Semantic interpretation of ambiguous adjuncts
-        5. Personal-pronoun features
+        1. Hard grammatical blockers (indefinite pronouns, bare predicate adjectives)
+        2. Morphological case & semantic adjunct tags (TIME, MANNER, CAUSE, LOCATION, Accusative, Dative, Locative, Instrumental)
+        3. Core syntactic arguments (Subject, Direct Object, Dative)
+        4. Definite personal pronouns
+        5. Action / VP focus (infinitives or bare verbal roots)
         6. Safe fallback: NEEDS_VERIFICATION
         """
         semantic_tag = self._extract_semantic_tag(focus_word, focus_token, analysis)
         dep_relation = self._extract_dependency_relation(focus_token, sentence_ir, analysis, semantic_tag)
-
-        # ---------------------------------------------------------
-        # TEMPORAL ADJUNCT CHECK
-        # ---------------------------------------------------------
-        # A verbal form can function as a temporal adjunct.
-        # Example:
-        #   വന്നതിനുശേഷം
-        #   ആരംഭിക്കുന്നതിനുമുമ്പ്
-        #
-        # These must be treated as TIME, not VP_ACTION.
-        if semantic_tag == "TEMPORAL":
-            return True, "TIME", "ALLOWED", ""
-
-        # ---------------------------------------------------------
-        # ACTION / VP FOCUS
-        # ---------------------------------------------------------
+        case = self._get_case(analysis)
         form_pos = getattr(focus_token, "form_pos", "") if focus_token else ""
-        if (
-            focus_word.endswith("ുക")
-            or focus_word.endswith("ക്ക")
-            or form_pos.startswith("V_")
-            or getattr(analysis, "pos", "") in ("VERB", "verb")
-        ):
-            return True, "VP_ACTION", "ALLOWED", ""
 
         # ---------------------------------------------------------
         # 1. HARD BLOCKERS
@@ -691,32 +673,7 @@ class CleftPipeline:
             return False, "ADJECTIVE_PREDICATE", "BLOCKED", f"Adjective predicate '{focus_word}' cannot be cleft-focused directly without nominalization."
 
         # ---------------------------------------------------------
-        # 2. SYNTACTIC CORE ARGUMENTS
-        # ---------------------------------------------------------
-        if dep_relation == "nsubj":
-            if self._is_definite_personal_pronoun(analysis, focus_token):
-                return True, "DEFINITE_PRONOUN", "ALLOWED", ""
-            return True, "SUBJECT", "ALLOWED", ""
-
-        if dep_relation in ("obj", "dobj"):
-            return True, "DIRECT_OBJECT", "ALLOWED", ""
-
-        if dep_relation in ("iobj", "dative"):
-            return True, "DATIVE_OBJECT", "ALLOWED", ""
-
-        # ---------------------------------------------------------
-        # 3. MORPHOLOGICAL CASE
-        # ---------------------------------------------------------
-        case = self._get_case(analysis)
-
-        if case == "accusative":
-            return True, "DIRECT_OBJECT", "ALLOWED", ""
-
-        if case == "dative":
-            return True, "DATIVE_OBJECT", "ALLOWED", ""
-
-        # ---------------------------------------------------------
-        # 4. SEMANTICALLY AMBIGUOUS ADJUNCTS
+        # 2. SEMANTIC ADJUNCTS (TEMPORAL, MANNER, CAUSE, LOCATION)
         # ---------------------------------------------------------
         if semantic_tag == "TEMPORAL":
             return True, "TIME", "ALLOWED", ""
@@ -727,19 +684,55 @@ class CleftPipeline:
         if semantic_tag == "CAUSE":
             return True, "CAUSAL_PHRASE", "ALLOWED", ""
 
-        if case == "instrumental" and semantic_tag != "CAUSE":
+        if semantic_tag == "LOCATION":
+            return True, "LOCATION", "ALLOWED", ""
+
+        # ---------------------------------------------------------
+        # 3. MORPHOLOGICAL CASE
+        # ---------------------------------------------------------
+        if case == "accusative":
+            return True, "DIRECT_OBJECT", "ALLOWED", ""
+
+        if case == "dative":
+            return True, "DATIVE_OBJECT", "ALLOWED", ""
+
+        if case == "instrumental":
             return True, "INSTRUMENT", "ALLOWED", ""
 
         if case == "locative":
-            if semantic_tag == "LOCATION":
-                return True, "LOCATION", "ALLOWED", ""
-            return False, "AMBIGUOUS_LOCATIVE", "NEEDS_VERIFICATION", f"Locative constituent '{focus_word}' is semantically ambiguous without location/manner/time context."
+            return True, "LOCATION", "ALLOWED", ""
+
+        if case == "sociative":
+            return True, "CAUSAL_PHRASE", "ALLOWED", ""
+
+        if case == "ablative":
+            return True, "LOCATION", "ALLOWED", ""
 
         # ---------------------------------------------------------
-        # 5. DEFINITE PERSONAL PRONOUN
+        # 4. SYNTACTIC CORE ARGUMENTS & DEFINITE PRONOUNS
         # ---------------------------------------------------------
         if self._is_definite_personal_pronoun(analysis, focus_token):
             return True, "DEFINITE_PRONOUN", "ALLOWED", ""
+
+        if dep_relation == "nsubj":
+            return True, "SUBJECT", "ALLOWED", ""
+
+        if dep_relation in ("obj", "dobj"):
+            return True, "DIRECT_OBJECT", "ALLOWED", ""
+
+        if dep_relation in ("iobj", "dative"):
+            return True, "DATIVE_OBJECT", "ALLOWED", ""
+
+        # ---------------------------------------------------------
+        # 5. ACTION / VP FOCUS (infinitives or bare verbal roots)
+        # ---------------------------------------------------------
+        if (
+            focus_word.endswith("ുക")
+            or focus_word.endswith("ക്ക")
+            or form_pos.startswith("V_")
+            or getattr(analysis, "pos", "") in ("VERB", "verb")
+        ):
+            return True, "VP_ACTION", "ALLOWED", ""
 
         # ---------------------------------------------------------
         # 6. SAFE FALLBACK

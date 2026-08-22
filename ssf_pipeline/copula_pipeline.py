@@ -4,22 +4,15 @@ from mlmorph import Analyser, Generator
 
 logger = logging.getLogger(__name__)
 
-# Standard Malayalam case suffixes mapped to their case names
+# Active Malayalam case suffixes used by detect_css() to preserve case during copula attachment
 CASE_SUFFIXES = {
-    "ablative": ["ഇൽനിന്ന്", "ൽനിന്ന്", "നിന്ന്", "നിന്നു"],
-    "instrumental": ["കൊണ്ട്", "ആൽ", "യാൽ"],
-    "genitive": ["ന്റെ", "ഉടെ", "നുടെ"],
-    "locative": ["ഇൽ", "ൽ", "റ്റിൽ", "ങ്കൽ"],
-    "dative": ["ന്", "ക്ക്", "അ്", "ക്"],
-    "accusative": ["എ", "നെ", "യെ"],
-    "sociative": ["ഓട്", "യോട്"]
-}
-
-# Pronoun person resolution mapping
-PRONOUN_PERSONS = {
-    "ഞാൻ": "first", "ഞങ്ങൾ": "first", "നാം": "first",
-    "നീ": "second", "നിങ്ങൾ": "second",
-    "അവൻ": "third", "അവൾ": "third", "അവർ": "third", "അത്": "third"
+    "ablative": ["ൽനിന്ന്", "നിന്ന്"],
+    "instrumental": ["കൊണ്ട്", "യാൽ", "ആൽ"],
+    "genitive": ["ന്റെ", "്റെ", "ുടെ"],
+    "locative": ["ിൽ", "ൽ", "റ്റിൽ", "ത്ത്"],
+    "dative": ["ക്ക്", "ന്"],
+    "accusative": ["യെ", "നെ", "െ"],
+    "sociative": ["യോട്", "ഓട്"]
 }
 
 
@@ -65,17 +58,16 @@ def attach_aanu_surface(word: str) -> str:
 
 
 class MorphAnalysis:
-    def __init__(self, raw_analysis, lemma, pos, case, number, person, other_features):
+    def __init__(self, raw_analysis, lemma, pos, case, number, other_features):
         self.raw_analysis = raw_analysis
         self.lemma = lemma
         self.pos = pos
         self.case = case
         self.number = number
-        self.person = person
         self.other_features = other_features
 
     def key(self):
-        return (self.lemma, self.pos, self.case, self.number, self.person)
+        return (self.lemma, self.pos, self.case, self.number)
 
     def __str__(self):
         return self.raw_analysis
@@ -95,7 +87,7 @@ class AnalysisLayer:
         """
         import re
         if "<" not in raw_analysis:
-            return MorphAnalysis(raw_analysis, raw_analysis, "UNK", "nominative", "singular", None, "")
+            return MorphAnalysis(raw_analysis, raw_analysis, "UNK", "nominative", "singular", "")
 
         # Extract all tags inside <...>
         tags = re.findall(r"<([^>]+)>", raw_analysis)
@@ -126,22 +118,11 @@ class AnalysisLayer:
         # Determine Number
         number = "plural" if "pl" in tags else ("singular" if pos in ["NOUN", "PRON"] else None)
 
-        # Determine Person
-        person = None
-        if "first" in tags:
-            person = "first"
-        elif "second" in tags:
-            person = "second"
-        elif "third" in tags:
-            person = "third"
-        elif pos == "PRON" and lemma in PRONOUN_PERSONS:
-            person = PRONOUN_PERSONS[lemma]
-
         # Other Features
-        skip_tags = {raw_pos, case, "pl", "first", "second", "third"}
+        skip_tags = {raw_pos, case, "pl"}
         other_features = "|".join([t for t in tags if t not in skip_tags])
 
-        return MorphAnalysis(raw_analysis, lemma, pos, case, number, person, other_features)
+        return MorphAnalysis(raw_analysis, lemma, pos, case, number, other_features)
 
     def analyze_word(self, word):
         """
@@ -149,13 +130,13 @@ class AnalysisLayer:
         along with status ('VALID', 'AMBIGUOUS', 'UNRESOLVED').
         """
         if self._is_punctuation(word):
-            analysis = MorphAnalysis(word, word, "PUNC", None, None, None, "")
+            analysis = MorphAnalysis(word, word, "PUNC", None, None, "")
             return [analysis], "VALID"
 
         raw_analyses = self.analyser.analyse(word)
         if not raw_analyses:
             # For words not in FST dictionary, create a base MorphAnalysis
-            synthetic = MorphAnalysis(word, word, "NOUN", "nominative", "singular", None, "")
+            synthetic = MorphAnalysis(word, word, "NOUN", "nominative", "singular", "")
             return [synthetic], "VALID"
 
         # Parse all analyses

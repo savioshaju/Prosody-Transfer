@@ -21,7 +21,7 @@ def print_formatted_output(word, selected, status, mlmorph_copula, copula_path):
         feat_list = []
         if selected.number:
             feat_list.append(selected.number)
-        if selected.person:
+        if hasattr(selected, 'person') and selected.person:
             feat_list.append(selected.person)
         if selected.other_features:
             feat_list.append(selected.other_features)

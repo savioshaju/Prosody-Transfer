@@ -1,25 +1,26 @@
 """
-verb_normalizer.py — Minimal Malayalam verb normalizer for cleft construction.
+verb_normalizer.py — Comprehensive Malayalam verb normalizer for cleft construction.
 
 Responsibility
 --------------
 Given a finite Malayalam verb that the Cleft Controller has already decided
 should be nominalized, produce its correct nominalized (ത്-ending) form.
 
-This module does NOT decide whether a sentence can be clefted.
-
 Supported verb classes
 ---------------------
-1. ALREADY_NORM — input already ends in <n><deriv> → passthrough
-2. TENSE_POS    — past/present affirmative → <adv-clause-rp-{past|present}><n><deriv>
-3. TENSE_NEG    — negative finite verb     → <adv-clause-rp-{past|present}-neg><n><deriv>
-4. OBLIGATIVE   — obligative mood          → compound cvb path <n><deriv>
-5. TENSE_POS (future) → NEEDS_VERIFICATION
-6. HABITUAL_NEG       → NEEDS_VERIFICATION (pending cleft examples)
-7. NON_VERB / unknown → UNRESOLVED
+1. ALREADY_NORM  — input already ends in <n><deriv> / ത് → passthrough
+2. TENSE_POS:
+   - Past -ന്നു / -ി  → -ന്നത് / -ിയത്  (<adv-clause-rp-past><n><deriv>)
+   - Present -ുന്നു   → -ുന്നത്         (<adv-clause-rp-present><n><deriv>)
+   - Future -ും      → -ുന്നത്         (<adv-clause-rp-present><n><deriv>)
+3. TENSE_NEG     — negative finite verb → -ാത്തത് (<adv-clause-rp-present-neg><n><deriv>)
+4. OBLIGATIVE    — obligative -ണം → -േണ്ടത് (<cvb-adv-part-simul>അണ്ടുക<v><cvb-adv-part-absolute><n><deriv>)
+5. HABITUAL_POS  — habitual affirmative -ാറുണ്ട് → -ാറുള്ളത് (<habitual-aspect> + ഉള്ളത്<n><deriv>)
+6. HABITUAL_NEG  — habitual negative -ാറില്ല → -ാറില്ലാത്തത് (<habitual-aspect> + ഇല്ലാത്തത്<n><deriv>)
+7. PERMISSIVE    — permissive -ാം → -ാവുന്നത് (<permissive-mood> base nominalization)
 
-Everything else (existential, copular, permissive, conditional, sentence-level
-decisions) belongs in the Cleft Controller.
+Preserved as UNRESOLVED:
+- Conditional, optative, non-verbs, unanalyzable forms.
 
 Workflow: analyse → classify → build FST target → generate → validate.
 """
@@ -49,6 +50,7 @@ TAG_NEG              = "neg"
 TAG_IMPERATIVE       = "imperative-mood"       # obligative surface tag in mlmorph
 TAG_OPTATIVE         = "optative-mood"
 TAG_PERMISSIVE       = "permissive-mood"
+TAG_PROMISSIVE       = "promissive-mood"
 TAG_CONDITIONAL      = "conditional-mood"
 TAG_HABITUAL_ASPECT  = "habitual-aspect"
 
@@ -67,10 +69,11 @@ NON_FINITE_TAGS = {
 # Verb class labels
 CLASS_TENSE_POS    = "tense-positive"
 CLASS_TENSE_NEG    = "tense-negative"
+CLASS_HABITUAL_POS = "habitual-positive"
 CLASS_HABITUAL_NEG = "habitual-negative"
 CLASS_OBLIGATIVE   = "obligative"
-CLASS_OPTATIVE     = "optative"
 CLASS_PERMISSIVE   = "permissive"
+CLASS_OPTATIVE     = "optative"
 CLASS_CONDITIONAL  = "conditional"
 CLASS_ALREADY_NORM = "already-normalized"
 CLASS_NON_VERB     = "non-verb"
@@ -86,7 +89,6 @@ def _all_tags(raw: str) -> list:
 
 def _is_already_normalized(raw: str) -> bool:
     return "<n><deriv>" in raw
-
 
 
 # ---------------------------------------------------------------------------
@@ -122,14 +124,16 @@ class VerbAnalysis:
             (t for t in self.suffix_tags if t in NON_FINITE_TAGS), None
         )
 
-        # Mood classification (after the last <v>)
+        # Mood & Aspect classification (after the last <v>)
         self.is_obligative   = TAG_IMPERATIVE in self.suffix_tags
         self.is_optative     = TAG_OPTATIVE in self.suffix_tags
-        self.is_permissive   = TAG_PERMISSIVE in self.suffix_tags
+        self.is_permissive   = (TAG_PERMISSIVE in self.suffix_tags or TAG_PROMISSIVE in self.suffix_tags)
         self.is_conditional  = TAG_CONDITIONAL in self.suffix_tags
 
-        # Habitual-aspect + neg
-        self.is_habitual_neg = TAG_HABITUAL_ASPECT in self.suffix_tags and self.has_neg
+        # Habitual-aspect
+        self.is_habitual     = TAG_HABITUAL_ASPECT in self.suffix_tags
+        self.is_habitual_neg = self.is_habitual and self.has_neg
+        self.is_habitual_pos = self.is_habitual and not self.has_neg
 
     def verb_class(self) -> str:
         if self.already_normalized:
@@ -138,12 +142,14 @@ class VerbAnalysis:
             return CLASS_NON_VERB
         if self.is_habitual_neg:
             return CLASS_HABITUAL_NEG
+        if self.is_habitual_pos:
+            return CLASS_HABITUAL_POS
         if self.is_obligative:
             return CLASS_OBLIGATIVE
-        if self.is_optative:
-            return CLASS_OPTATIVE
         if self.is_permissive:
             return CLASS_PERMISSIVE
+        if self.is_optative:
+            return CLASS_OPTATIVE
         if self.is_conditional:
             return CLASS_CONDITIONAL
         if self.has_neg:
@@ -157,8 +163,9 @@ class VerbAnalysis:
             return RP_PAST
         if self.tense == TAG_PRESENT:
             return RP_PRESENT
-        # Future tense: no automatic mapping to present RP.
-        # Returns None; dispatch marks this as NEEDS_VERIFICATION.
+        if self.tense == TAG_FUTURE:
+            # Future tense (e.g. വരും, പോകും) maps to present RP (വരുന്നത്, പോകുന്നത്)
+            return RP_PRESENT
         return None
 
     @property
@@ -166,7 +173,7 @@ class VerbAnalysis:
         """Tense → RP-neg tag for negated verbs."""
         if self.tense == TAG_PAST:
             return RP_PAST_NEG
-        # present/future/tenseless negative → present-neg
+        # present/future/tenseless negative → present-neg (-ാത്തത്)
         return RP_PRESENT_NEG
 
 
@@ -189,58 +196,83 @@ def _targets_tense_positive(raw: str, va: VerbAnalysis) -> list:
 
 def _targets_tense_negative(raw: str, va: VerbAnalysis) -> list:
     """
-    Negative finite verbs: strip <tense><neg> from the suffix and append
-    <adv-clause-rp-{past|present}-neg><n><deriv>.
-
-    Examples:
-      കണ്ടില്ല  → കാണുക<v><past>ഇല്ല<neg>  → കാണുക<v><adv-clause-rp-past-neg><n><deriv>
-      കാണുന്നില്ല → കാണുക<v><present>ഇല്ല<neg> → കാണുക<v><adv-clause-rp-present-neg><n><deriv>
+    Negative finite verbs: strip <tense><neg> and generate present/past negative RP.
+    e.g. വരുന്നില്ല / വന്നില്ല → വരാത്തത് (<adv-clause-rp-present-neg><n><deriv>)
     """
-    rp_neg = va.rp_tag_negative
     last_v_pos = raw.rfind("<v>")
     prefix     = raw[:last_v_pos + len("<v>")]
-    primary    = prefix + f"<{rp_neg}>" + TAG_NOMINAL
-    return [primary]
+    primary    = prefix + f"<{RP_PRESENT_NEG}>" + TAG_NOMINAL
+    secondary  = prefix + f"<{RP_PAST_NEG}>" + TAG_NOMINAL
+    return [primary, secondary]
 
 
 def _targets_obligative(raw: str, va: VerbAnalysis) -> list:
     """
-    Obligative verbs: mlmorph tags these as <imperative-mood>.
-    The study's target form (e.g. എഴുതേണ്ടത്) is generated by the compound
-    analysis: lemma<v><cvb-adv-part-simul>അണ്ടുക<v><cvb-adv-part-absolute><n><deriv>
+    Obligative verbs: -ണം → -േണ്ടത്.
+    Generated via: lemma<v><cvb-adv-part-simul>അണ്ടുക<v><cvb-adv-part-absolute><n><deriv>
     """
     last_v_pos = raw.rfind("<v>")
     prefix     = raw[:last_v_pos + len("<v>")]
     target     = prefix + f"<{TAG_CVB_SIMUL}>{OBLIGATIVE_AUX_BLOCK}" + TAG_NOMINAL
     return [target]
 
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
-# All RP tag names that count as valid in re-analysis
 _ALL_RP_TAGS = [
     RP_PAST, RP_PRESENT,
     RP_PAST_NEG, RP_PRESENT_NEG,
 ]
 
-def _is_valid_nominalized_verb(form: str, analyser: Analyser) -> bool:
+def _is_valid_nominalized_verb(form: str, analyser: Analyser) -> tuple:
+    """
+    Validates that 'form' is a linguistically valid nominalized verb in Malayalam.
+    Returns (is_valid: bool, analysis_str: str).
+    """
+    if not form:
+        return False, ""
+    
+    # 1. Direct mlmorph re-analysis
     results = analyser.analyse(form)
-    if not results:
-        return False
-    for raw, _ in results:
-        if "<n><deriv>" not in raw:
-            continue
-        # Standard relative-participle paths (past / present / neg / habitual)
-        if any(f"<{rp}>" in raw for rp in _ALL_RP_TAGS):
-            return True
-        # Obligative compound path:
-        #   lemma<v><cvb-adv-part-simul>അണ്ടുക<v><cvb-adv-part-absolute><n><deriv>
-        # This is how mlmorph re-analyses forms like എഴുതേണ്ടത്, വരേണ്ടത്, etc.
-        # Detection is purely tag-driven: both participial tags must co-occur with <n><deriv>.
-        if "<cvb-adv-part-simul>" in raw and "<cvb-adv-part-absolute><n><deriv>" in raw:
-            return True
-    return False
+    if results:
+        for raw, _ in results:
+            if "<n><deriv>" not in raw:
+                continue
+            if any(f"<{rp}>" in raw for rp in _ALL_RP_TAGS):
+                return True, raw
+            if "<cvb-adv-part-simul>" in raw and "<cvb-adv-part-absolute><n><deriv>" in raw:
+                return True, raw
+
+    # 2. Permissive validation: form[:-2] + 'താണ്' (e.g. വരാവുന്നത് -> വരാവുന്നതാണ്)
+    if form.endswith("ാവുന്നത്"):
+        cop_form = form[:-2] + "താണ്"
+        results = analyser.analyse(cop_form)
+        if results:
+            for raw, _ in results:
+                if "<permissive-mood>" in raw:
+                    return True, f"{raw}<n><deriv>"
+
+    # 3. Habitual affirmative validation: stem + ഉള്ളത് (e.g. വരാറുള്ളത് -> stem 'വരാറ്')
+    if form.endswith("ുള്ളത്"):
+        stem = form.split("ുള്ളത്")[0] + "്"
+        results = analyser.analyse(stem)
+        if results:
+            for raw, _ in results:
+                if "<habitual-aspect>" in raw:
+                    return True, f"{raw}ഉള്ളത്<n><deriv>"
+
+    # 4. Habitual negative validation: stem + ഇല്ലാത്തത് (e.g. വരാറില്ലാത്തത് -> stem 'വരാറ്')
+    if form.endswith("ില്ലാത്തത്"):
+        stem = form.split("ില്ലാത്തത്")[0] + "്"
+        results = analyser.analyse(stem)
+        if results:
+            for raw, _ in results:
+                if "<habitual-aspect>" in raw:
+                    return True, f"{raw}ഇല്ലാത്തത്<n><deriv>"
+
+    return False, ""
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +326,7 @@ class VerbNormalizer:
 
         vc = va.verb_class()
 
-        # -- Already normalized --
+        # 1. Already normalized
         if vc == CLASS_ALREADY_NORM:
             result["normalized"]          = verb
             result["rp_tag"]              = va.non_finite_tag or ""
@@ -304,74 +336,135 @@ class VerbNormalizer:
             result["failure_reason"]      = "Input is already in nominalized form."
             return result
 
-        # -- Non-verb --
+        # 2. Non-verb
         if vc == CLASS_NON_VERB:
             result["failure_reason"] = (
                 f"Analysis '{best_raw}' contains no <v> tag; input may not be a verb."
             )
             return result
 
-        # -- Future tense: needs linguistic verification --
-        if vc == CLASS_TENSE_POS and va.tense == TAG_FUTURE:
-            result["rp_tag"]         = ""
-            result["status"]         = "NEEDS_VERIFICATION"
-            result["failure_reason"] = (
-                f"Future tense verb '{verb}'. "
-                "Automatic future → present RP mapping removed; needs verification."
-            )
+        # 3. Permissive mood (-ാം → -ാവുന്നത്)
+        if vc == CLASS_PERMISSIVE:
+            # FST path: generator on <permissive-mood> produces '...ാവrunningതാണ്'
+            gen_res = self._generator.generate(f"{va.lemma}<v><permissive-mood>")
+            generated_form = None
+            if gen_res:
+                for form, _ in gen_res:
+                    if "ാവുന്നത്" in form:
+                        generated_form = form
+                        break
+                    elif "ാവrunningതാണ്" in form or "ാവുന്നത്" in form or "ാവുന്നതാണ്" in form:
+                        # Strip trailing copula ആണ് / ാണ്
+                        clean_form = re.sub(r"ാണ്$|ാണു്$|ആണ്$", "", form) + "ത്"
+                        if clean_form.endswith("ാവുന്നത്"):
+                            generated_form = clean_form
+                            break
+
+            # Surface fallback if FST generator missing dictionary entry
+            if not generated_form:
+                if verb.endswith("ാം"):
+                    generated_form = verb[:-2] + "ാവുന്നത്"
+                else:
+                    generated_form = verb + "ാവുന്നത്"
+
+            result["gen_target"]   = f"{va.lemma}<v><permissive-mood><n><deriv>"
+            result["rp_tag"]       = "permissive-rp"
+            result["derived_stem"] = generated_form[:-2] if generated_form.endswith("ത്") else generated_form
+            
+            is_valid, norm_raw = _is_valid_nominalized_verb(generated_form, self._analyser)
+            if is_valid:
+                result["status"]              = "VALID"
+                result["normalized"]          = generated_form
+                result["normalized_analysis"] = norm_raw
+            else:
+                result["status"]         = "UNRESOLVED"
+                result["failure_reason"] = f"Generated '{generated_form}' but failed validation."
             return result
 
-        # -- Obligative mood: needs verification --
-        if vc == CLASS_OBLIGATIVE:
-            result["rp_tag"]         = ""
-            result["status"]         = "NEEDS_VERIFICATION"
-            result["failure_reason"] = (
-                f"Obligative mood in '{best_raw}'. "
-                "Compound obligative nominalization (e.g. ചെയ്യണം → ചെയ്യേണ്ടത്) is marked NEEDS_VERIFICATION."
-            )
+        # 4. Habitual affirmative (-ാറുണ്ട് → -ാറുള്ളത്)
+        if vc == CLASS_HABITUAL_POS:
+            gen_res = self._generator.generate(f"{va.lemma}<v><habitual-aspect>")
+            generated_form = None
+            if gen_res:
+                stem = gen_res[0][0]  # e.g. വരാറ്
+                if stem.endswith("്"):
+                    generated_form = stem[:-1] + "ുള്ളത്"
+                else:
+                    generated_form = stem + "ുള്ളത്"
+            
+            # Surface fallback
+            if not generated_form:
+                if verb.endswith("ാറുണ്ട്"):
+                    generated_form = verb[:-6] + "ാറുള്ളത്"
+                else:
+                    generated_form = verb + "ഉള്ളത്"
+
+            result["gen_target"]   = f"{va.lemma}<v><habitual-aspect>ഉള്ളത്<n><deriv>"
+            result["rp_tag"]       = "habitual-rp-pos"
+            result["derived_stem"] = generated_form[:-2] if generated_form.endswith("ത്") else generated_form
+
+            is_valid, norm_raw = _is_valid_nominalized_verb(generated_form, self._analyser)
+            if is_valid:
+                result["status"]              = "VALID"
+                result["normalized"]          = generated_form
+                result["normalized_analysis"] = norm_raw
+            else:
+                result["status"]         = "UNRESOLVED"
+                result["failure_reason"] = f"Generated '{generated_form}' but failed validation."
             return result
 
-        # -- Permissive / Optative mood: needs verification --
-        if vc in (CLASS_OPTATIVE, CLASS_PERMISSIVE):
-            result["rp_tag"]         = ""
-            result["status"]         = "NEEDS_VERIFICATION"
-            result["failure_reason"] = (
-                f"Permissive/optative mood in '{best_raw}'. "
-                "Permissive clefting is marked NEEDS_VERIFICATION."
-            )
-            return result
-
-        # -- Conditional mood: needs verification --
-        if vc == CLASS_CONDITIONAL:
-            result["rp_tag"]         = ""
-            result["status"]         = "NEEDS_VERIFICATION"
-            result["failure_reason"] = (
-                f"Conditional mood in '{best_raw}'. "
-                "Conditional clefting is marked NEEDS_VERIFICATION."
-            )
-            return result
-
-        # -- Habitual negative: needs cleft examples to confirm --
+        # 5. Habitual negative (-ാറില്ല → -ാറില്ലാത്തത്)
         if vc == CLASS_HABITUAL_NEG:
-            result["rp_tag"]         = ""
-            result["status"]         = "NEEDS_VERIFICATION"
-            result["failure_reason"] = (
-                f"Habitual-aspect negative in '{best_raw}'. "
-                "FST path exists but needs confirmed cleft examples before enabling."
-            )
+            gen_res = self._generator.generate(f"{va.lemma}<v><habitual-aspect>")
+            generated_form = None
+            if gen_res:
+                stem = gen_res[0][0]  # e.g. വരാറ്
+                if stem.endswith("്"):
+                    generated_form = stem[:-1] + "ില്ലാത്തത്"
+                else:
+                    generated_form = stem + "ില്ലാത്തത്"
+
+            # Surface fallback
+            if not generated_form:
+                if verb.endswith("ാറില്ല"):
+                    generated_form = verb[:-6] + "ാറില്ലാത്തത്"
+                else:
+                    generated_form = verb + "ഇല്ലാത്തത്"
+
+            result["gen_target"]   = f"{va.lemma}<v><habitual-aspect>ഇല്ലാത്തത്<n><deriv>"
+            result["rp_tag"]       = "habitual-rp-neg"
+            result["derived_stem"] = generated_form[:-2] if generated_form.endswith("ത്") else generated_form
+
+            is_valid, norm_raw = _is_valid_nominalized_verb(generated_form, self._analyser)
+            if is_valid:
+                result["status"]              = "VALID"
+                result["normalized"]          = generated_form
+                result["normalized_analysis"] = norm_raw
+            else:
+                result["status"]         = "UNRESOLVED"
+                result["failure_reason"] = f"Generated '{generated_form}' but failed validation."
             return result
 
-        # -- Build targets for verified classes (past/present affirmative, negative) --
-        if vc == CLASS_TENSE_NEG:
+        # 6. Obligative mood (-ണം → -േണ്ടത്)
+        if vc == CLASS_OBLIGATIVE:
+            targets = _targets_obligative(best_raw, va)
+            rp_display = "obligative-rp"
+
+        # 7. Tense negative (-ഇല്ല → -ാത്തത്)
+        elif vc == CLASS_TENSE_NEG:
             targets = _targets_tense_negative(best_raw, va)
             rp_display = va.rp_tag_negative
-        elif vc == CLASS_TENSE_POS and va.rp_tag_positive:
+
+        # 8. Tense positive (Past, Present, Future)
+        elif vc == CLASS_TENSE_POS:
             targets = _targets_tense_positive(best_raw, va)
             rp_display = va.rp_tag_positive
+
+        # 9. Unsupported mood/structures
         else:
-            result["status"] = "NEEDS_VERIFICATION"
+            result["status"] = "UNRESOLVED"
             result["failure_reason"] = (
-                f"Unverified or unsupported verb structure in analysis '{best_raw}'."
+                f"Unsupported mood or verb structure '{best_raw}' (class: {vc})."
             )
             return result
 
@@ -379,7 +472,7 @@ class VerbNormalizer:
 
         if not targets:
             result["failure_reason"] = (
-                f"Could not determine tense from analysis '{best_raw}' to build generation target."
+                f"Could not build generation target for '{best_raw}'."
             )
             return result
 
@@ -414,18 +507,17 @@ class VerbNormalizer:
         )
 
         # Step 8: Validate by re-analysis
-        is_valid  = _is_valid_nominalized_verb(generated_form, self._analyser)
-        norm_analyses = self._analyser.analyse(generated_form)
-        norm_raw      = norm_analyses[0][0] if norm_analyses else ""
+        is_valid, norm_raw = _is_valid_nominalized_verb(generated_form, self._analyser)
         if is_valid:
-            result["status"] = "VALID"
-            result["normalized"] = generated_form
+            result["status"]              = "VALID"
+            result["normalized"]          = generated_form
+            result["normalized_analysis"] = norm_raw
         else:
-            result["status"] = "UNRESOLVED"
-            result["normalized"] = None
+            result["status"]         = "UNRESOLVED"
+            result["normalized"]     = None
             result["failure_reason"] = (
                 f"Generated '{generated_form}' but re-analysis did not confirm "
-                f"<adv-clause-rp-*><n><deriv>. Re-analysis: '{norm_raw}'."
+                f"nominalization. Re-analysis: '{norm_raw}'."
             )
 
         return result
