@@ -1,6 +1,6 @@
 import sys
 
-from verb_normalizer import VerbNormalizer, print_result
+from ssf_pipeline.verb_normalizer import VerbNormalizer, print_result
 
 
 def main():

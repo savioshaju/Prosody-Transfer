@@ -514,7 +514,7 @@ class CopulaLayer:
             else:
                 stem_start += 1
             suffix_candidate = raw_analysis[stem_start:]
-            participle_tags = ["adv-clause-rp-past", "cvb-adv-part-absolute", "cvb-adv-part-past", "rp"]
+            participle_tags = ["adv-clause-rp-past", "cvb-adv-part-absolute", "rp"]
             if any(f"<{t}>" in suffix_candidate for t in participle_tags):
                 is_participle = True
                 participle_suffix = suffix_candidate

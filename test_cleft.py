@@ -13,9 +13,6 @@ def main():
         print("Usage: python test_cleft.py \"<Malayalam Sentence with <FF>focus<FF>>\"")
         sys.exit(1)
 
-    print("\n==============================================")
-    print("--- Malayalam Cleft Pipeline ---")
-    print("==============================================")
     pipeline = CleftPipeline()
     result = pipeline.process(sentence)
     print("\n" + str(result))

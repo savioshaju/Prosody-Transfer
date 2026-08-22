@@ -4,8 +4,12 @@ import string
 
 class BertPosTagger:
     def __init__(self, model_name="akhisreelibra/bert-malayalam-pos-tagger"):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForTokenClassification.from_pretrained(model_name)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            self.model = AutoModelForTokenClassification.from_pretrained(model_name, local_files_only=True)
+        except Exception:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModelForTokenClassification.from_pretrained(model_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.model.eval()

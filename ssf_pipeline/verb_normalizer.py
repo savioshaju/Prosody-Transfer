@@ -1,35 +1,27 @@
 """
-verb_normalizer.py - Standalone Malayalam verb normalizer.
+verb_normalizer.py — Minimal Malayalam verb normalizer for cleft construction.
 
-Input : One Malayalam finite verb (e.g. വായിച്ചു).
-Output: The nominalized clefting form ending in ത്  (e.g. വായിച്ചത്).
+Responsibility
+--------------
+Given a finite Malayalam verb that the Cleft Controller has already decided
+should be nominalized, produce its correct nominalized (ത്-ending) form.
 
-Approach
---------
-1. Analyse the surface verb with mlmorph to extract the raw analysis string.
-2. Parse the analysis to determine the verb class:
-     CLASS_TENSE_POS    – simple finite verb (past/present/future)
-     CLASS_TENSE_NEG    – negative finite verb (<neg> present)
-     CLASS_HABITUAL_NEG – habitual-aspect negative (<habitual-aspect>ഇല്ല<neg>)
-     CLASS_OBLIGATIVE   – obligative mood (<imperative-mood>)
-     CLASS_PERMISSIVE   – permissive/promissive mood (<permissive-mood>/<promissive-mood>)
-     CLASS_CONDITIONAL  – conditional mood (<conditional-mood>)
-     CLASS_EXISTENTIAL  – existential copula (<aff> tag, ഉണ്ട്)
-     CLASS_ALREADY_NORM – already nominalized (<n><deriv> present)
-     CLASS_NON_VERB     – no <v> tag found
-3. For each class, determine the FST generation target:
-     TENSE_POS    → lemma<v>[voice]<adv-clause-rp-{past|present}><n><deriv>
-     TENSE_NEG    → lemma<v><adv-clause-rp-{past|present}-neg><n><deriv>
-     HABITUAL_NEG → lemma<v><cont-perfect-aspect-neg><adv-clause-rp-past><n><deriv>
-     OBLIGATIVE   → lemma<v><cvb-adv-part-simul>അണ്ടുക<v><cvb-adv-part-absolute><n><deriv>
-     PERMISSIVE   → no FST path – UNRESOLVED
-     CONDITIONAL  → no FST path – UNRESOLVED
-     EXISTENTIAL  → irregular lexical substitute: ഉള്ളത് – UNRESOLVED (documented)
-4. Generate via mlmorph Generator. Prefer canonical ത് over തു് variant.
-5. Validate via re-analysis: confirm <adv-clause-rp-*><n><deriv> is present.
+This module does NOT decide whether a sentence can be clefted.
 
-No individual words, suffix lists, or word-specific replacements are used.
-All decisions are driven by the tag set returned by mlmorph.
+Supported verb classes
+---------------------
+1. ALREADY_NORM — input already ends in <n><deriv> → passthrough
+2. TENSE_POS    — past/present affirmative → <adv-clause-rp-{past|present}><n><deriv>
+3. TENSE_NEG    — negative finite verb     → <adv-clause-rp-{past|present}-neg><n><deriv>
+4. OBLIGATIVE   — obligative mood          → compound cvb path <n><deriv>
+5. TENSE_POS (future) → NEEDS_VERIFICATION
+6. HABITUAL_NEG       → NEEDS_VERIFICATION (pending cleft examples)
+7. NON_VERB / unknown → UNRESOLVED
+
+Everything else (existential, copular, permissive, conditional, sentence-level
+decisions) belongs in the Cleft Controller.
+
+Workflow: analyse → classify → build FST target → generate → validate.
 """
 
 import re
@@ -48,20 +40,17 @@ TAG_FUTURE  = "future"
 
 RP_PAST    = "adv-clause-rp-past"
 RP_PRESENT = "adv-clause-rp-present"
-RP_FUTURE  = "adv-clause-rp-future"   # no FST <n><deriv> path; kept for lookup
 
 RP_PAST_NEG    = "adv-clause-rp-past-neg"
 RP_PRESENT_NEG = "adv-clause-rp-present-neg"
 
 TAG_NOMINAL          = "<n><deriv>"
 TAG_NEG              = "neg"
-TAG_AFF              = "aff"                  # existential copula tag
 TAG_IMPERATIVE       = "imperative-mood"       # obligative surface tag in mlmorph
+TAG_OPTATIVE         = "optative-mood"
 TAG_PERMISSIVE       = "permissive-mood"
-TAG_PROMISSIVE       = "promissive-mood"
 TAG_CONDITIONAL      = "conditional-mood"
 TAG_HABITUAL_ASPECT  = "habitual-aspect"
-TAG_CONT_PERFECT_NEG = "cont-perfect-aspect-neg"
 
 # The obligative compound: verb<cvb-adv-part-simul> + അണ്ടുക<v><cvb-adv-part-absolute>
 OBLIGATIVE_AUX_BLOCK = "അണ്ടുക<v><cvb-adv-part-absolute>"
@@ -70,7 +59,7 @@ TAG_CVB_SIMUL        = "cvb-adv-part-simul"
 TENSE_TAGS  = {TAG_PAST, TAG_PRESENT, TAG_FUTURE}
 VOICE_TAGS  = {"passive-voice", "causative-voice"}
 NON_FINITE_TAGS = {
-    RP_PAST, RP_PRESENT, RP_FUTURE,
+    RP_PAST, RP_PRESENT,
     RP_PAST_NEG, RP_PRESENT_NEG,
     "cvb-adv-part-past", "cvb-adv-part-absolute", TAG_CVB_SIMUL,
 }
@@ -80,9 +69,9 @@ CLASS_TENSE_POS    = "tense-positive"
 CLASS_TENSE_NEG    = "tense-negative"
 CLASS_HABITUAL_NEG = "habitual-negative"
 CLASS_OBLIGATIVE   = "obligative"
+CLASS_OPTATIVE     = "optative"
 CLASS_PERMISSIVE   = "permissive"
 CLASS_CONDITIONAL  = "conditional"
-CLASS_EXISTENTIAL  = "existential"
 CLASS_ALREADY_NORM = "already-normalized"
 CLASS_NON_VERB     = "non-verb"
 
@@ -97,6 +86,7 @@ def _all_tags(raw: str) -> list:
 
 def _is_already_normalized(raw: str) -> bool:
     return "<n><deriv>" in raw
+
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +114,8 @@ class VerbAnalysis:
         # Negation
         self.has_neg = TAG_NEG in self.suffix_tags
 
-        # Existential copula: ഉണ്ട് → <aff> tag (no <v>)
-        self.is_existential = TAG_AFF in self.tags and not self.has_verb
+        # Lemma: text before first <
+        self.lemma = raw.split("<")[0] if "<" in raw else raw
 
         # Non-finite tag (participial) already present
         self.non_finite_tag = next(
@@ -133,27 +123,25 @@ class VerbAnalysis:
         )
 
         # Mood classification (after the last <v>)
-        self.is_obligative  = TAG_IMPERATIVE  in self.suffix_tags
-        self.is_permissive  = TAG_PERMISSIVE  in self.suffix_tags or TAG_PROMISSIVE in self.suffix_tags
-        self.is_conditional = TAG_CONDITIONAL in self.suffix_tags
+        self.is_obligative   = TAG_IMPERATIVE in self.suffix_tags
+        self.is_optative     = TAG_OPTATIVE in self.suffix_tags
+        self.is_permissive   = TAG_PERMISSIVE in self.suffix_tags
+        self.is_conditional  = TAG_CONDITIONAL in self.suffix_tags
 
         # Habitual-aspect + neg
         self.is_habitual_neg = TAG_HABITUAL_ASPECT in self.suffix_tags and self.has_neg
 
-        # Lemma: text before first <
-        self.lemma = raw.split("<")[0] if "<" in raw else raw
-
     def verb_class(self) -> str:
         if self.already_normalized:
             return CLASS_ALREADY_NORM
-        if self.is_existential:
-            return CLASS_EXISTENTIAL
         if not self.has_verb:
             return CLASS_NON_VERB
         if self.is_habitual_neg:
             return CLASS_HABITUAL_NEG
         if self.is_obligative:
             return CLASS_OBLIGATIVE
+        if self.is_optative:
+            return CLASS_OPTATIVE
         if self.is_permissive:
             return CLASS_PERMISSIVE
         if self.is_conditional:
@@ -167,10 +155,10 @@ class VerbAnalysis:
         """Tense → RP tag for positive (non-negated) verbs."""
         if self.tense == TAG_PAST:
             return RP_PAST
-        if self.tense in (TAG_PRESENT, TAG_FUTURE):
-            # Malayalam has no FST future-RP <n><deriv> path;
-            # present-RP is the grammatically appropriate substitute.
+        if self.tense == TAG_PRESENT:
             return RP_PRESENT
+        # Future tense: no automatic mapping to present RP.
+        # Returns None; dispatch marks this as NEEDS_VERIFICATION.
         return None
 
     @property
@@ -215,21 +203,6 @@ def _targets_tense_negative(raw: str, va: VerbAnalysis) -> list:
     return [primary]
 
 
-def _targets_habitual_negative(raw: str, va: VerbAnalysis) -> list:
-    """
-    Habitual-aspect negative: <habitual-aspect>ഇല്ല<neg>
-    → <cont-perfect-aspect-neg><adv-clause-rp-past><n><deriv>
-
-    This is the FST path that generates forms like
-      വിളിക്കാതിരിക്കുന്നത് (continuous non-occurrence).
-    The study equates this with the clefted form of habitual negatives.
-    """
-    last_v_pos = raw.rfind("<v>")
-    prefix     = raw[:last_v_pos + len("<v>")]
-    target     = prefix + f"<{TAG_CONT_PERFECT_NEG}><{RP_PAST}>" + TAG_NOMINAL
-    return [target]
-
-
 def _targets_obligative(raw: str, va: VerbAnalysis) -> list:
     """
     Obligative verbs: mlmorph tags these as <imperative-mood>.
@@ -241,18 +214,14 @@ def _targets_obligative(raw: str, va: VerbAnalysis) -> list:
     target     = prefix + f"<{TAG_CVB_SIMUL}>{OBLIGATIVE_AUX_BLOCK}" + TAG_NOMINAL
     return [target]
 
-
-# No FST paths for permissive and conditional — they return [] to signal UNRESOLVED.
-
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
 # All RP tag names that count as valid in re-analysis
 _ALL_RP_TAGS = [
-    RP_PAST, RP_PRESENT, RP_FUTURE,
+    RP_PAST, RP_PRESENT,
     RP_PAST_NEG, RP_PRESENT_NEG,
-    TAG_CONT_PERFECT_NEG,
 ]
 
 def _is_valid_nominalized_verb(form: str, analyser: Analyser) -> bool:
@@ -335,17 +304,6 @@ class VerbNormalizer:
             result["failure_reason"]      = "Input is already in nominalized form."
             return result
 
-        # -- Existential (ഉണ്ട്) --
-        if vc == CLASS_EXISTENTIAL:
-            result["rp_tag"]         = ""
-            result["failure_reason"] = (
-                "Existential copula ഉണ്ട് has no regular FST nominalization path. "
-                "The study identifies ഉള്ളത് as the irregular lexical substitute. "
-                "mlmorph analyses ഉള്ളത് as ഉള്ളത്<n> (a lexical noun, not a derived form). "
-                "Pattern class: <aff> copula → irregular."
-            )
-            return result
-
         # -- Non-verb --
         if vc == CLASS_NON_VERB:
             result["failure_reason"] = (
@@ -353,45 +311,69 @@ class VerbNormalizer:
             )
             return result
 
-        # -- Permissive --
-        if vc == CLASS_PERMISSIVE:
+        # -- Future tense: needs linguistic verification --
+        if vc == CLASS_TENSE_POS and va.tense == TAG_FUTURE:
             result["rp_tag"]         = ""
+            result["status"]         = "NEEDS_VERIFICATION"
             result["failure_reason"] = (
-                f"Verb has permissive/promissive mood (<permissive-mood> or <promissive-mood>) "
-                f"in analysis '{best_raw}'. "
-                "mlmorph FST has no direct <n><deriv> path for permissive verbs. "
-                "The study's target form (e.g. ചെയ്യാവുന്നത്) is not analysable by mlmorph; "
-                "its generation would require a separate potential-modal auxiliary chain "
-                "not represented in the current FST. "
-                "Pattern class: <v><permissive-mood> → no <adv-clause-rp-*><n><deriv> path."
+                f"Future tense verb '{verb}'. "
+                "Automatic future → present RP mapping removed; needs verification."
             )
             return result
 
-        # -- Conditional --
+        # -- Obligative mood: needs verification --
+        if vc == CLASS_OBLIGATIVE:
+            result["rp_tag"]         = ""
+            result["status"]         = "NEEDS_VERIFICATION"
+            result["failure_reason"] = (
+                f"Obligative mood in '{best_raw}'. "
+                "Compound obligative nominalization (e.g. ചെയ്യണം → ചെയ്യേണ്ടത്) is marked NEEDS_VERIFICATION."
+            )
+            return result
+
+        # -- Permissive / Optative mood: needs verification --
+        if vc in (CLASS_OPTATIVE, CLASS_PERMISSIVE):
+            result["rp_tag"]         = ""
+            result["status"]         = "NEEDS_VERIFICATION"
+            result["failure_reason"] = (
+                f"Permissive/optative mood in '{best_raw}'. "
+                "Permissive clefting is marked NEEDS_VERIFICATION."
+            )
+            return result
+
+        # -- Conditional mood: needs verification --
         if vc == CLASS_CONDITIONAL:
             result["rp_tag"]         = ""
+            result["status"]         = "NEEDS_VERIFICATION"
             result["failure_reason"] = (
-                f"Verb has conditional mood (<conditional-mood>) in analysis '{best_raw}'. "
-                "The study classifies conditional verbs as an exception with no available "
-                "direct cleft-normalization form. "
-                "mlmorph FST has no <adv-clause-rp-*><n><deriv> path for <conditional-mood>. "
-                "Pattern class: <v><conditional-mood> → no nominalization path."
+                f"Conditional mood in '{best_raw}'. "
+                "Conditional clefting is marked NEEDS_VERIFICATION."
             )
             return result
 
-        # -- Build targets for remaining classes --
+        # -- Habitual negative: needs cleft examples to confirm --
         if vc == CLASS_HABITUAL_NEG:
-            targets = _targets_habitual_negative(best_raw, va)
-            rp_display = f"{TAG_CONT_PERFECT_NEG}>{RP_PAST}"
-        elif vc == CLASS_OBLIGATIVE:
-            targets = _targets_obligative(best_raw, va)
-            rp_display = f"{TAG_CVB_SIMUL} + {OBLIGATIVE_AUX_BLOCK}"
-        elif vc == CLASS_TENSE_NEG:
+            result["rp_tag"]         = ""
+            result["status"]         = "NEEDS_VERIFICATION"
+            result["failure_reason"] = (
+                f"Habitual-aspect negative in '{best_raw}'. "
+                "FST path exists but needs confirmed cleft examples before enabling."
+            )
+            return result
+
+        # -- Build targets for verified classes (past/present affirmative, negative) --
+        if vc == CLASS_TENSE_NEG:
             targets = _targets_tense_negative(best_raw, va)
             rp_display = va.rp_tag_negative
-        else:   # CLASS_TENSE_POS
+        elif vc == CLASS_TENSE_POS and va.rp_tag_positive:
             targets = _targets_tense_positive(best_raw, va)
-            rp_display = va.rp_tag_positive or ""
+            rp_display = va.rp_tag_positive
+        else:
+            result["status"] = "NEEDS_VERIFICATION"
+            result["failure_reason"] = (
+                f"Unverified or unsupported verb structure in analysis '{best_raw}'."
+            )
+            return result
 
         result["rp_tag"] = rp_display
 
