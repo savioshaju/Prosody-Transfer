@@ -1,3 +1,6 @@
-mlmorph>=1.4.3
 torch>=2.0.0
-transformers>=4.20.0
+transformers>=4.30.0
+sentencepiece>=0.1.99
+indic-nlp-library>=0.92
+pandas>=2.0.0
+mlmorph>=1.0.0

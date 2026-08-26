@@ -96,17 +96,22 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
     if focused_pos_upper.startswith("JJ") or focused_pos_upper == "JJ":
         return "PE"
 
-    # 3. Check for lexical main verb V_VM_* in sentence
+    # 3. Check for lexical main verb V_VM_* or verbal surface suffix in sentence
     has_lexical_vm = any(
         tag.startswith("V_VM") and not tag.startswith("V_VAUX")
         for tag in sentence_pos_upper
     )
-    has_only_vaux = (
-        any(tag == "V_VAUX" or tag.startswith("V_VAUX") for tag in sentence_pos_upper)
-        and not has_lexical_vm
-    )
+    if not has_lexical_vm:
+        # Check if the sentence-final token or any token has a finite verb suffix (-ുന്നു, -ിച്ചു, -തു, -ി, -ണം, -ും)
+        has_lexical_vm = any(
+            any(w.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം"))
+            for w in (focused_word, sentence_pos_upper[0] if sentence_pos_upper else "")
+        ) or any(
+            any(t.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം"))
+            for t in (focused_word.split())
+        )
 
-    if not has_lexical_vm or has_only_vaux:
+    if not has_lexical_vm:
         return "PE"
 
     # 4. Supported nominal / adverbial / VP constituent + lexical V_VM_*
@@ -129,8 +134,11 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
 decide_cleft_or_pe = check_cleft_eligibility
 
 
+from .alignment_utils import extract_alignment_and_prosody
+
+
 class CleftResult:
-    """Carries all intermediate information from the cleft generation pipeline."""
+    """Carries all intermediate and alignment information from the cleft generation pipeline."""
 
     def __init__(
         self,
@@ -166,26 +174,94 @@ class CleftResult:
         self.pe_sentence = pe_sentence
         self.error = error
 
+        # Compute full alignment & prosody data if a cleft/clean sentence and focus word exist
+        if self.clean_sentence and self.focus_word:
+            align_data = extract_alignment_and_prosody(
+                original_sentence=self.clean_sentence,
+                clefted_sentence=self.cleft_sentence or self.clean_sentence,
+                focused_constituent=self.focus_word,
+                main_verb=self.main_verb,
+                normalized_verb=self.normalized_verb,
+            )
+            self.prosody_label_sequence = align_data["prosody_label_sequence"]
+            self.position_before = align_data["position_before"]
+            self.position_after = align_data["position_after"]
+            self.aanu_attachment = align_data["aanu_attachment"]
+            self.word_alignments = align_data["word_alignments"]
+            self.constituent_alignments = align_data["constituent_alignments"]
+            if not self.normalized_verb:
+                self.normalized_verb = align_data["nominalized_verb"]
+        else:
+            self.prosody_label_sequence = []
+            self.position_before = []
+            self.position_after = []
+            self.aanu_attachment = {"attached_to": "none", "target_word": "", "attached_form": "", "position": None}
+            self.word_alignments = []
+            self.constituent_alignments = []
+
+    def to_dict(self) -> dict:
+        return {
+            "original_sentence": self.clean_sentence or self.original_sentence,
+            "clefted_sentence": self.cleft_sentence,
+            "focused_constituent": self.focus_word,
+            "constituent_type": self.constituent_type,
+            "prosody_label_sequence": self.prosody_label_sequence,
+            "position_before": self.position_before,
+            "position_after": self.position_after,
+            "aanu_attachment": self.aanu_attachment,
+            "nominalized_verb": self.normalized_verb,
+            "word_alignments": self.word_alignments,
+            "constituent_alignments": self.constituent_alignments,
+            "status": self.status,
+            "route": self.route,
+            "phase": self.phase,
+            "error": self.error,
+        }
+
     def __str__(self):
         lines = [
-            f"Original sentence   : {self.original_sentence}",
-            f"Focused word        : {self.focus_word or '—'}",
-            f"Strategy Route      : {self.route}",
-            f"Constituent type    : {self.constituent_type or '—'}",
-            f"Focused-word copula : {self.copula_form or '—'}",
-            f"Identified main verb: {self.main_verb or '—'}",
-            f"Normalized verb     : {self.normalized_verb or '—'}",
-            f"Final cleft sentence: {self.cleft_sentence or '—'}",
-            f"Status              : {self.status}",
+            f"Original sentence      : {self.clean_sentence or self.original_sentence}",
+            f"Clefted sentence       : {self.cleft_sentence or '—'}",
+            f"Focused constituent    : {self.focus_word or '—'} (Type: {self.constituent_type or '—'})",
+            f"Prosody label sequence : {self.prosody_label_sequence}",
+            f"Position before        : {self.position_before}",
+            f"Position after         : {self.position_after}",
         ]
+
+        aanu = getattr(self, "aanu_attachment", {})
+        if aanu and aanu.get("attached_to") != "none":
+            lines.append(f"ആണ് attachment         : {aanu.get('attached_form')} (attached to {aanu.get('attached_to')} '{aanu.get('target_word')}' at index {aanu.get('position')})")
+        else:
+            lines.append(f"ആണ് attachment         : {self.copula_form or '—'}")
+
+        lines.extend([
+            f"Identified main verb   : {self.main_verb or '—'}",
+            f"Nominalized verb       : {self.normalized_verb or '—'}",
+            f"Strategy Route         : {self.route}",
+            f"Status                 : {self.status}",
+        ])
+
+        if self.word_alignments:
+            lines.append("\nWord Alignments (Before -> After):")
+            for wa in self.word_alignments:
+                src_str = f"  [{wa['src_index']}] {wa['src_word']}"
+                tgt_str = f"[{wa['tgt_index']}] {wa['tgt_word']}" if wa["tgt_index"] is not None else "[—] UNMATCHED"
+                lines.append(f"  {src_str:<22} ---> {tgt_str:<25} ({wa['alignment_type']})")
+
+        if self.constituent_alignments:
+            lines.append("\nConstituent Alignments:")
+            for ca in self.constituent_alignments:
+                lines.append(f"  * {ca['role']:<22}: Src {ca['src_position']} '{ca['src_form']}' ---> Tgt {ca['tgt_position']} '{ca['tgt_form']}'")
+
         if self.pe_sentence:
-            lines.append(f"PE Sentence         : {self.pe_sentence}")
+            lines.append(f"\nPE Sentence            : {self.pe_sentence}")
         if self.phase:
-            lines.append(f"Pipeline phase      : {self.phase}")
+            lines.append(f"Pipeline phase         : {self.phase}")
         if self.copula_path:
-            lines.append(f"Copula path         : {self.copula_path}")
+            lines.append(f"Copula path            : {self.copula_path}")
         if self.error:
-            lines.append(f"Note / Reason       : {self.error}")
+            lines.append(f"Note / Reason          : {self.error}")
+
         return "\n".join(lines)
 
 
@@ -303,18 +379,26 @@ class CleftPipeline:
         # Morphological analysis of the focused word
         analyses, analysis_status = self._analysis_layer.analyze_word(focus_word)
         if analysis_status == "UNRESOLVED" or not analyses:
-            return CleftResult(
-                original_sentence=tagged_sentence,
-                clean_sentence=clean_sentence,
-                focus_word=focus_word,
-                focus_token=focus_token,
-                status="UNRESOLVED",
-                phase="PHASE_1_ELIGIBILITY",
-                route="CLEFT",
-                error=f"mlmorph could not analyze focus word '{focus_word}'.",
-            )
+            # Robust fallback for Proper Nouns / OOV words (e.g. അരിസോണയിൽ, കാന്യോൺ)
+            case_guess = "nominative"
+            if any(focus_word.endswith(sfx) for sfx in ("യിൽ", "ൽ", "ത്തിൽ", "ത്ത്")):
+                case_guess = "locative"
+            elif any(focus_word.endswith(sfx) for sfx in ("ന്", "ക്ക്", "ിന്")):
+                case_guess = "dative"
+            elif any(focus_word.endswith(sfx) for sfx in ("യെ", "നെ", "െ")):
+                case_guess = "accusative"
 
-        selected_analysis = analyses[0]
+            from .copula_pipeline import MorphAnalysis
+            selected_analysis = MorphAnalysis(
+                raw_analysis=f"{focus_word}<n><{case_guess}>",
+                lemma=focus_word,
+                pos="N_NNP",
+                case=case_guess,
+                number="singular",
+                other_features="oov_fallback"
+            )
+        else:
+            selected_analysis = analyses[0]
 
         # --------------------------------------------------------------
         # PHASE 1: CLEFT ELIGIBILITY

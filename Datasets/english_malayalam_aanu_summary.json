@@ -1,0 +1,22 @@
+{
+  "dataset": "Datasets/english_malayalam.csv",
+  "total_sentences": 1024,
+  "category_counts": {
+    "COPULA": 167,
+    "NON_AANU_OTHER": 730,
+    "TAM_PROGRESSIVE": 7,
+    "FOCUS_EMPHASIS": 120
+  },
+  "focus_type_counts": {
+    "EQUATIVE_ATTRIBUTIVE_COPULA": 155,
+    "NONE": 730,
+    "PROGRESSIVE_ASPECT": 7,
+    "STANDARD_CLEFT": 85,
+    "REDUCED_CLEFT_EXPERIENCER": 6,
+    "ACTION_FOCUS": 23,
+    "EXCLUSIVE_FOCUS": 5,
+    "EMPHATIC_CLITIC_FOCUS": 1,
+    "LOCATIVE_COPULA": 11,
+    "EQUATIVE_COPULA": 1
+  }
+}

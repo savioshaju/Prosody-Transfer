@@ -52,14 +52,16 @@ class MalayalamPipeline:
             has_verb_tag = (
                 form_pos.startswith("V_") or
                 lemma_pos.startswith("V_") or
-                any(t in feats for t in ('past', 'present', 'future', 'mood', 'aspect', 'aff'))
+                any(t in feats for t in ('past', 'present', 'future', 'mood', 'aspect', 'aff')) or
+                any(form.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ചെയ്യുന്നു", "ചെയ്യുന്നത്"))
             )
             if has_verb_tag:
                 s = self._score_verb_candidate(i, form, form_pos, lemma_pos, analysis)
                 candidates.append((i, s))
                 
         if not candidates:
-            return None
+            # Fallback to the sentence-final token as the main verb
+            return len(tokens) - 1
             
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates[0][0]
