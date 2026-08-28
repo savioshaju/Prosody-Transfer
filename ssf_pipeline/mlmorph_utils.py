@@ -19,7 +19,7 @@ class MlmorphAnalyzer:
 
         analyses = self.analyzer.analyse(form)
         if not analyses:
-            logger.warning("mlmorph: no analysis for surface form '%s'", form)
+            # logger.warning("mlmorph: no analysis for surface form '%s'", form)
             return {'lemma': form, 'feats': ''}
             
         # Get the first (most probable) analysis

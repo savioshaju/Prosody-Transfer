@@ -5,14 +5,15 @@ from mlmorph import Analyser, Generator
 logger = logging.getLogger(__name__)
 
 # Active Malayalam case suffixes used by detect_css() to preserve case during copula attachment
+# Extended with all allomorphs from the SSF manual
 CASE_SUFFIXES = {
-    "ablative": ["ൽനിന്ന്", "നിന്ന്"],
-    "instrumental": ["കൊണ്ട്", "യാൽ", "ആൽ"],
-    "genitive": ["ന്റെ", "്റെ", "ുടെ"],
-    "locative": ["ിൽ", "ൽ", "റ്റിൽ", "ത്ത്"],
-    "dative": ["ക്ക്", "ന്"],
+    "ablative": ["ഇൽനിന്ന്", "ൽനിന്ന്", "നിന്ന്", "നിന്നു"],
+    "instrumental": ["കൊണ്ട്", "ത്തിനാൽ", "ഇനാൽ", "യാൽ", "ആൽ"],
+    "genitive": ["ഇന്റെ", "ന്റെ", "്റെ", "യുടെ", "ുടെ"],
+    "locative": ["ത്തിൽ", "വിൽ", "യിൽ", "ിൽ", "ൽ", "റ്റിൽ", "ത്ത്"],
+    "dative": ["യ്ക്ക്", "ക്ക്", "ഇന്", "ന്"],
     "accusative": ["യെ", "നെ", "െ"],
-    "sociative": ["യോട്", "ഓട്"]
+    "sociative": ["ത്തോട്", "ഇനോട്", "വിനോട്", "യോട്", "ഓട്"]
 }
 
 
@@ -20,24 +21,51 @@ def attach_aanu_surface(word: str) -> str:
     """
     Direct deterministic surface phonological attachment of 'ആണ്' to a single Malayalam word.
     Used when FST generation does not have an explicit dictionary entry for the single word.
-    
-    Phonological rules:
-    - Anusvara (-ം)           → -മാണ് (e.g. പുസ്തകം → പുസ്തകമാണ്)
-    - Alveolar chillu (-ൻ)     → -നാണ് (e.g. അവൻ → അവനാണ്)
-    - Lateral chillu (-ൽ)      → -ലാണ് (e.g. വീട്ടിൽ → വീട്ടിലാണ്)
-    - Retroflex chillu (-ൾ)    → -ളാണ് (e.g. അവൾ → അവളാണ്)
-    - Rhotic chillu (-ർ)       → -രാണ് (e.g. അവർ → അവരാണ്)
-    - Retroflex nasal chillu (-ൺ) → -ണാണ് (e.g. കൺ → കണാണ്)
-    - Velar chillu (-ൿ)        → -കാണ്
-    - Labial / rounded vowels (-ു, -ൂ, -ൊ, -ോ, -വ്) → -വാണ് (e.g. ഗുരു → ഗുരുവാണ്, കാവ് → കാവാണ്)
-    - Palatal vowels & all others (-ി, -ീ, -െ, -േ, etc.) → -യാണ് (e.g. കുട്ടി → കുട്ടിയാണ്, നാളെ → നാളെയാണ്)
+
+    Implements all 5 SSF-manual sandhi processes for ആണ്:
+
+    1. ആഗമം (Āgama) — Insertion / Augmentation:
+       a) യകാരാഗമം (Yakāra-āgamam) — യ insertion:
+          V(അ,ആ,ഇ,ഈ,എ,ഏ,ഐ) + ആണ് → V + യ + ആണ്
+          Examples: കസേര→കസേരയാണ്, കുട്ടി→കുട്ടിയാണ്, നാളെ→നാളെയാണ്
+       b) വകാരാഗമം (Vakāra-āgamam) — വ insertion:
+          V(ഉ,ഊ,ഒ,ഓ,ഔ) + ആണ് → V + വ + ആണ്
+          Examples: ഗുരു→ഗുരുവാണ്, ശത്രു→ശത്രുവാണ്
+
+    2. ആദേശം (Ādēśa) — Substitution / Replacement:
+       ം + ആണ് → മ + ആണ്  (Anusvāra resolution)
+       Examples: പുസ്തകം→പുസ്തകമാണ്, മരം→മരമാണ്
+
+    3. വ്യഞ്ജന–സ്വര സന്ധി (Vyañjana–Svara Sandhi) — Consonant–Vowel Joining:
+       ൻ + ആ → നാ  (e.g. അവൻ→അവനാണ്)
+       ൾ + ആ → ളാ  (e.g. അവൾ→അവളാണ്)
+       ർ + ആ → രാ  (e.g. അവർ→അവരാണ്)
+       ൽ + ആ → ലാ  (e.g. വീട്ടിൽ→വീട്ടിലാണ്)
+       ൺ + ആ → ണാ  (e.g. കൺ→കണാണ്)
+       ൿ + ആ → കാ
+
+    4. Virāma / Chandrakkala Deletion:
+       C് + ആ → Cാ  (final chandrakkala removed when vowel attaches)
+       Examples: നിലത്ത്→നിലത്താണ്, കൊണ്ട്→കൊണ്ടാണ്, ഓട്→ഓടാണ്
+
+    5. ലോപം (Lōpa) — Deletion / Elision:
+       Deletes a phonological element at boundary when two morphemes combine.
     """
     if not word:
         return "ആണ്"
+    # Already copular — passthrough
     if word.endswith("ആണ്") or word.endswith("ാണ്"):
         return word
+
+    # ---------------------------------------------------------------
+    # 2. ആദേശം — Anusvāra Resolution: ം → മാണ്
+    # ---------------------------------------------------------------
     if word.endswith("ം"):
         return word[:-1] + "മാണ്"
+
+    # ---------------------------------------------------------------
+    # 3. വ്യഞ്ജന–സ്വര സന്ധി — Chillu Consonant–Vowel Joining
+    # ---------------------------------------------------------------
     if word.endswith("ൻ"):
         return word[:-1] + "നാണ്"
     if word.endswith("ൽ"):
@@ -50,10 +78,44 @@ def attach_aanu_surface(word: str) -> str:
         return word[:-1] + "ണാണ്"
     if word.endswith("ൿ"):
         return word[:-1] + "കാണ്"
-    if word.endswith("വ്"):
-        return word[:-1] + "വാണ്"
-    if any(word.endswith(v) for v in ("ു", "ൂ", "ൊ", "ോ", "ൌ")):
+
+    # ---------------------------------------------------------------
+    # 4. Virāma / Chandrakkala Deletion: C് + ആ → Cാണ്
+    #    The final chandrakkala ് is removed and the vowel-sign ാ attaches.
+    #    Ordered: specific consonant clusters first, then generic.
+    # ---------------------------------------------------------------
+    # Specific geminate/cluster patterns (most common in case suffixes)
+    _VIRAMA_CLUSTERS = (
+        ("ത്ത്", "ത്താണ്"),   # locative ത്ത്  → ത്താണ്  (e.g. നിലത്ത്→നിലത്താണ്)
+        ("ട്ട്", "ട്ടാണ്"),   # e.g. കൊട്ട്→കൊട്ടാണ്
+        ("ക്ക്", "ക്കാണ്"),   # dative ക്ക്   → ക്കാണ്  (e.g. അവനുക്ക്→...ക്കാണ്)
+        ("പ്പ്", "പ്പാണ്"),   # e.g. ചെപ്പ്→ചെപ്പാണ്
+        ("ന്ന്", "ന്നാണ്"),   # ablative നിന്ന് → നിന്നാണ്
+        ("ണ്ട്", "ണ്ടാണ്"),   # e.g. കൊണ്ട്→കൊണ്ടാണ്  (instrumental)
+        ("ണ്ട്", "ണ്ടാണ്"),   # e.g. ഉണ്ട്→ഉണ്ടാണ്
+        ("ച്ച്", "ച്ചാണ്"),   # e.g. പുച്ച്→പുച്ചാണ്
+        ("ല്ല്", "ല്ലാണ്"),
+        ("ള്ള്", "ള്ളാണ്"),
+    )
+    for suffix, replacement in _VIRAMA_CLUSTERS:
+        if word.endswith(suffix):
+            return word[:-len(suffix)] + replacement
+
+    # Generic Virāma deletion: any consonant + ് → consonant + ാണ്
+    if word.endswith("്"):
+        return word[:-1] + "ാണ്"
+
+    # ---------------------------------------------------------------
+    # 1. ആഗമം — Vowel-based Insertion
+    # ---------------------------------------------------------------
+    # 1b. വകാരാഗമം (Vakāra-āgamam): rounded/back vowels → വ insertion
+    #     ഉ, ഊ, ഒ, ഓ, ഔ  + ആണ് → + വാണ്
+    if any(word.endswith(v) for v in ("ു", "ൂ", "ൊ", "ോ", "ൌ", "ൗ")):
         return word + "വാണ്"
+
+    # 1a. യകാരാഗമം (Yakāra-āgamam): front/central vowels → യ insertion
+    #     അ, ആ, ഇ, ഈ, എ, ഏ, ഐ  + ആണ് → + യാണ്
+    #     This is the default for all remaining vowel-final words.
     return word + "യാണ്"
 
 

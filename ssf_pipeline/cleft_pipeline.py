@@ -275,16 +275,15 @@ class CleftPipeline:
                Manner, Instrument, Causal phrase, Definite personal pronoun.
         BLOCK: Indefinite pronoun, Adjective predicate, Unverified constituent.
 
-      PHASE 2 — CLEFT STRUCTURE
-        Determine focused constituent, background clause, word order,
-        copula placement, and clausal transformations.
-
-      PHASE 3 — VERB NORMALIZATION
-        Delegate finite verb nominalization to VerbNormalizer (Past/Present, Negative).
+      PHASE 2 — VERB NORMALIZATION (Executed First)
+        Delegate finite matrix verb nominalization to VerbNormalizer (Past/Present, Negative).
         Unverified cases remain explicitly marked NEEDS_VERIFICATION.
 
-      PHASE 4 — VALIDATION & ASSEMBLY
-        Validate normalized forms and assemble final clefted sentence.
+      PHASE 3 — CLEFT STRUCTURE & COPULA GENERATION (Adding ആണ്)
+        Determine focused constituent, case preservation, and attach 'ആണ്' copula.
+
+      PHASE 4 — VALIDATION & SENTENCE ASSEMBLY
+        Validate normalized forms, substitute normalized verb first, then attach/substitute copula form.
 
       SEPARATE LATER PHASE — ABSENCE OF VERB / SUPPORT-VERB INSERTION
         Existential predicates (ഉണ്ട്) and VP/action-focus cases return LATER_PHASE.
@@ -376,22 +375,23 @@ class CleftPipeline:
                 cleft_sentence=pe_sentence,
             )
 
-        # Morphological analysis of the focused word
-        analyses, analysis_status = self._analysis_layer.analyze_word(focus_word)
+        # Morphological analysis of the focused word (for multi-word constituents, analyze the head word)
+        head_word = focus_word.split()[-1] if focus_word else ""
+        analyses, analysis_status = self._analysis_layer.analyze_word(head_word)
         if analysis_status == "UNRESOLVED" or not analyses:
             # Robust fallback for Proper Nouns / OOV words (e.g. അരിസോണയിൽ, കാന്യോൺ)
             case_guess = "nominative"
-            if any(focus_word.endswith(sfx) for sfx in ("യിൽ", "ൽ", "ത്തിൽ", "ത്ത്")):
+            if any(head_word.endswith(sfx) for sfx in ("യിൽ", "ൽ", "ത്തിൽ", "ത്ത്")):
                 case_guess = "locative"
-            elif any(focus_word.endswith(sfx) for sfx in ("ന്", "ക്ക്", "ിന്")):
+            elif any(head_word.endswith(sfx) for sfx in ("ന്", "ക്ക്", "ിന്")):
                 case_guess = "dative"
-            elif any(focus_word.endswith(sfx) for sfx in ("യെ", "നെ", "െ")):
+            elif any(head_word.endswith(sfx) for sfx in ("യെ", "നെ", "െ")):
                 case_guess = "accusative"
 
             from .copula_pipeline import MorphAnalysis
             selected_analysis = MorphAnalysis(
-                raw_analysis=f"{focus_word}<n><{case_guess}>",
-                lemma=focus_word,
+                raw_analysis=f"{head_word}<n><{case_guess}>",
+                lemma=head_word,
                 pos="N_NNP",
                 case=case_guess,
                 number="singular",
@@ -459,10 +459,66 @@ class CleftPipeline:
                 ),
             )
 
+        # Check if the matrix predicate is copular (ആണ്-bearing predicate e.g. അവൻ രാമനാണ് -> അവനാണ് രാമൻ)
+        is_copular_pred = bool(main_verb and self._is_copular_predicate(main_verb))
+
         # --------------------------------------------------------------
-        # PHASE 2: CLEFT STRUCTURE & COPULA GENERATION
+        # PHASE 2: VERB NORMALIZATION (Executed First)
         # --------------------------------------------------------------
-        if constituent_type == "TIME" and any(
+        normalized_verb = ""
+
+        if is_copular_pred:
+            # When the matrix predicate itself is copular, decopularize the background predicate
+            # (e.g. രാമനാണ് -> രാമൻ, ആണ് -> "")
+            normalized_verb = self._decopularize(main_verb)
+            norm_status = "VALID"
+        elif main_verb and main_verb != focus_word:
+            # Delegate strictly to VerbNormalizer for finite matrix verbs
+            norm_res = self._verb_normalizer.normalize(main_verb)
+            norm_status = norm_res.get("status", "UNRESOLVED")
+
+            if norm_status == "NEEDS_VERIFICATION":
+                return CleftResult(
+                    original_sentence=tagged_sentence,
+                    clean_sentence=clean_sentence,
+                    focus_word=focus_word,
+                    focus_token=focus_token,
+                    constituent_type=constituent_type,
+                    main_verb=main_verb,
+                    status="NEEDS_VERIFICATION",
+                    phase="PHASE_2_NORMALIZATION",
+                    error=f"Matrix verb normalization requires verification: {norm_res.get('failure_reason', '')}",
+                )
+
+            if norm_status != "VALID" or not norm_res.get("normalized"):
+                return CleftResult(
+                    original_sentence=tagged_sentence,
+                    clean_sentence=clean_sentence,
+                    focus_word=focus_word,
+                    focus_token=focus_token,
+                    constituent_type=constituent_type,
+                    main_verb=main_verb,
+                    status="UNRESOLVED",
+                    phase="PHASE_2_NORMALIZATION",
+                    error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
+                )
+
+            normalized_verb = norm_res["normalized"]
+        else:
+            normalized_verb = ""
+
+        # --------------------------------------------------------------
+        # PHASE 3: CLEFT STRUCTURE & COPULA GENERATION (Adding ആണ്)
+        # --------------------------------------------------------------
+        words = focus_word.split()
+        if len(words) > 1:
+            prefix = " ".join(words[:-1])
+            head_word = words[-1]
+            head_copula, _preserved, copula_path = self._copula_layer.transform_word(
+                head_word, selected_analysis
+            )
+            copula_form = f"{prefix} {head_copula}"
+        elif constituent_type == "TIME" and any(
             focus_word.endswith(sfx)
             for sfx in TEMPORAL_CLAUSE_SUFFIXES
         ):
@@ -484,70 +540,22 @@ class CleftPipeline:
                 copula_form=copula_form,
                 copula_path=copula_path,
                 main_verb=main_verb,
+                normalized_verb=normalized_verb,
                 status="NOT_SUPPORTED",
-                phase="PHASE_2_STRUCTURE",
+                phase="PHASE_3_STRUCTURE",
                 error=f"CopulaLayer could not attach copula to '{focus_word}' via path '{copula_path}'.",
             )
-
-        # Check if the matrix predicate is copular (ആണ്-bearing predicate e.g. അവൻ രാമനാണ് -> അവനാണ് രാമൻ)
-        is_copular_pred = bool(main_verb and self._is_copular_predicate(main_verb))
-
-        # --------------------------------------------------------------
-        # PHASE 3: VERB NORMALIZATION
-        # --------------------------------------------------------------
-        normalized_verb = ""
-
-        if is_copular_pred:
-            # When the matrix predicate itself is copular, decopularize the background predicate
-            # (e.g. രാമനാണ് -> രാമൻ, ആണ് -> "")
-            normalized_verb = self._decopularize(main_verb)
-            norm_status = "VALID"
-        elif main_verb and main_verb != focus_word:
-            # Delegate strictly to VerbNormalizer for finite matrix verbs
-            norm_res = self._verb_normalizer.normalize(main_verb)
-            norm_status = norm_res.get("status", "UNRESOLVED")
-
-            if norm_status == "NEEDS_VERIFICATION":
-                return CleftResult(
-                    original_sentence=tagged_sentence,
-                    clean_sentence=clean_sentence,
-                    focus_word=focus_word,
-                    focus_token=focus_token,
-                    constituent_type=constituent_type,
-                    copula_form=copula_form,
-                    copula_path=copula_path,
-                    main_verb=main_verb,
-                    status="NEEDS_VERIFICATION",
-                    phase="PHASE_3_NORMALIZATION",
-                    error=f"Matrix verb normalization requires verification: {norm_res.get('failure_reason', '')}",
-                )
-
-            if norm_status != "VALID" or not norm_res.get("normalized"):
-                return CleftResult(
-                    original_sentence=tagged_sentence,
-                    clean_sentence=clean_sentence,
-                    focus_word=focus_word,
-                    focus_token=focus_token,
-                    constituent_type=constituent_type,
-                    copula_form=copula_form,
-                    copula_path=copula_path,
-                    main_verb=main_verb,
-                    status="UNRESOLVED",
-                    phase="PHASE_3_NORMALIZATION",
-                    error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
-                )
-
-            normalized_verb = norm_res["normalized"]
-        else:
-            normalized_verb = ""
 
         # --------------------------------------------------------------
         # PHASE 4: VALIDATION & SENTENCE ASSEMBLY
         # --------------------------------------------------------------
-        cleft_sentence = self._substitute(clean_sentence, focus_word, copula_form)
-
+        # 1. Substitute the normalized main verb first
+        cleft_sentence = clean_sentence
         if main_verb and normalized_verb is not None and main_verb != focus_word and main_verb != copula_form:
             cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
+
+        # 2. Substitute the copula-attached focus constituent
+        cleft_sentence = self._substitute(cleft_sentence, focus_word, copula_form)
 
         # If copula_form already carries the cleft copula, strip any orphaned background detached 'ആണ്'
         if copula_form.endswith("ആണ്") or copula_form.endswith("ാണ്"):
@@ -828,8 +836,20 @@ class CleftPipeline:
     # ------------------------------------------------------------------
 
     def _find_focus_token(self, sentence_ir, focus_word: str):
+        # 1. Exact match with a single token
         for token in sentence_ir.tokens:
             if token.form == focus_word:
+                return token
+        # 2. Multi-word phrase: match the head token (last word in phrase)
+        words = focus_word.split()
+        if len(words) > 1:
+            last_word = words[-1]
+            for token in sentence_ir.tokens:
+                if token.form == last_word:
+                    return token
+        # 3. Substring match
+        for token in sentence_ir.tokens:
+            if token.form in focus_word or focus_word in token.form:
                 return token
         return None
 
@@ -857,12 +877,23 @@ class CleftPipeline:
         Strip the copular suffix ആണ് from a copular predicate to recover
         the base non-focused constituent for cleft construction.
 
-        e.g. രാമനാണ് → രാമൻ, വീടാണ് → വീട്, മരമാണ് → മരം
+        Reverse sandhi rules (ordered most-specific → least-specific):
+
+        Virāma/Chandrakkala restoration:
+          Cാണ് → C്   (restore chandrakkala after stripping ാണ്)
+        Consonant–Vowel (Chillu) restoration:
+          നാണ് → ൻ, ളാണ് → ൾ, രാണ് → ർ, ലാണ് → ൽ
+        Anusvāra restoration:
+          മാണ് → ം
+        Yakāra / Vakāra restoration:
+          യാണ് → (strip യ)
+          വാണ് → (strip വ — but preserve if stem ends in വ്)
         """
         if word == "ആണ്":
             return ""
 
-        # Strategy 1: mlmorph analysis → generation
+        # Strategy 1: mlmorph analysis → generation (with roundtrip validation)
+        from .copula_pipeline import attach_aanu_surface
         analyses = self._analysis_layer.analyser.analyse(word)
         for raw, _ in analyses:
             if "ആണ്<aff>" in raw:
@@ -870,42 +901,74 @@ class CleftPipeline:
                 stripped_target = raw[:idx]
                 gen_results = self._copula_layer.generator.generate(stripped_target)
                 if gen_results:
-                    return gen_results[0][0]
+                    candidate = gen_results[0][0]
+                    # Roundtrip validation: attach_aanu_surface(candidate) must
+                    # reconstruct the original copular word. If not, the FST
+                    # picked a wrong lemma — fall through to surface rules.
+                    if attach_aanu_surface(candidate) == word:
+                        return candidate
 
-        # Strategy 2: Morphophonemic fallback (sandhi restoration)
-        if word.endswith("ക്കാണ്"):
-            return word[:-5] + "ക്ക്"
-        if word.endswith("യിലാണ്"):
-            return word[:-5] + "ിൽ"
-        if word.endswith("റ്റിലാണ്"):
-            return word[:-6] + "റ്റിൽ"
-        if word.endswith("ലിലാണ്"):
-            return word[:-6] + "ലിൽ"
-        if word.endswith("ലാണ്"):
-            return word[:-4] + "ൽ"
-        if word.endswith("നാണ്"):
-            return word[:-4] + "ൻ"
-        if word.endswith("ളാണ്"):
-            return word[:-4] + "ൾ"
-        if word.endswith("രാണ്"):
-            return word[:-4] + "ർ"
-        if word.endswith("മാണ്"):
-            return word[:-4] + "ം"
-        if word.endswith("വാണ്"):
-            return word[:-4] + "വ്"
-        if word.endswith("ടാണ്"):
-            return word[:-4] + "ട്"
-        if word.endswith("താണ്"):
-            return word[:-4] + "ത്"
-        if word.endswith("റ്റാണ്"):
-            return word[:-4] + "റ്റ്"
-        if word.endswith("പ്പാണ്"):
-            return word[:-4] + "പ്പ്"
-        if word.endswith("ത്താണ്"):
-            return word[:-4] + "ത്ത്"
-        if word.endswith("യാണ്"):
-            return word[:-4]
-        if word.endswith("ആണ്"):
-            return word[:-3]
+        # Strategy 2: Surface morphophonemic fallback (table-driven sandhi restoration)
+        # Each entry: (copular_suffix, base_suffix)
+        # Ordered most-specific → least-specific to prevent false matches.
+        _DECOPULARIZE_TABLE = (
+            # --- Case-suffix patterns (specific allomorphs first) ---
+            # Sociative
+            ("ത്തോടാണ്", "ത്തോട്"),
+            ("ഇനോടാണ്", "ഇനോട്"),
+            ("വിനോടാണ്", "വിനോട്"),
+            ("യോടാണ്", "യോട്"),
+            ("ഓടാണ്", "ഓട്"),
+            # Ablative
+            ("ൽനിന്നാണ്", "ൽനിന്ന്"),
+            ("നിന്നാണ്", "നിന്ന്"),
+            # Instrumental
+            ("കൊണ്ടാണ്", "കൊണ്ട്"),
+            ("ത്തിനാലാണ്", "ത്തിനാൽ"),
+            ("ഇനാലാണ്", "ഇനാൽ"),
+            ("യാലാണ്", "യാൽ"),
+            ("ആലാണ്", "ആൽ"),
+            # Dative
+            ("യ്ക്കാണ്", "യ്ക്ക്"),
+            ("ക്കാണ്", "ക്ക്"),
+            # Locative
+            ("ത്തിലാണ്", "ത്തിൽ"),
+            ("വിലാണ്", "വിൽ"),
+            ("യിലാണ്", "യിൽ"),
+            ("റ്റിലാണ്", "റ്റിൽ"),
+            ("ലിലാണ്", "ലിൽ"),
+            ("ലാണ്", "ൽ"),
+            # --- Geminate / cluster Virāma restoration ---
+            ("ത്താണ്", "ത്ത്"),
+            ("ന്നാണ്", "ന്ന്"),
+            ("ണ്ടാണ്", "ണ്ട്"),
+            ("ച്ചാണ്", "ച്ച്"),
+            ("ട്ടാണ്", "ട്ട്"),
+            ("പ്പാണ്", "പ്പ്"),
+            ("ല്ലാണ്", "ല്ല്"),
+            ("ള്ളാണ്", "ള്ള്"),
+            ("റ്റാണ്", "റ്റ്"),
+            # --- Chillu restoration (Vyañjana–Svara reverse) ---
+            ("നാണ്", "ൻ"),
+            ("ളാണ്", "ൾ"),
+            ("രാണ്", "ർ"),
+            # --- Anusvāra restoration ---
+            ("മാണ്", "ം"),
+            # --- Generic Virāma restoration ---
+            ("ടാണ്", "ട്"),
+            ("താണ്", "ത്"),
+            # --- Vakāra restoration (rounded vowels) ---
+            ("വാണ്", "വ്"),
+            # --- Yakāra restoration (front/central vowels) ---
+            ("യാണ്", ""),   # strip the inserted യ
+            # --- Bare ആണ് suffix ---
+            ("ആണ്", ""),
+        )
+
+        for copular_sfx, base_sfx in _DECOPULARIZE_TABLE:
+            if word.endswith(copular_sfx):
+                return word[:-len(copular_sfx)] + base_sfx
 
         return word
+
+

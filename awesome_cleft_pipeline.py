@@ -55,7 +55,6 @@ class AwesomeAlignerWrapper:
     def _load_model(self):
         if self._loaded:
             return
-        print(f">>> [Awesome-Aligner] Initializing model '{self.model_name}' (Device: {self.device})...")
         try:
             from awesome_align import modeling
             from awesome_align.modeling import BertForMaskedLM
@@ -71,7 +70,7 @@ class AwesomeAlignerWrapper:
             self.model.to(self.device)
             self.model.eval()
             self._loaded = True
-            print(">>> [Awesome-Aligner] Model loaded successfully.")
+            
         except Exception as e:
             print(f">>> [Awesome-Aligner] Note: Neural awesome-align unavailable ({e}). Using cross-lingual dictionary & positional aligner.")
             self._loaded = False
@@ -237,6 +236,136 @@ class AwesomeCleftPipeline:
         self.model_dir = model_dir
         self.device = device
 
+    def _is_verbal_token(self, word: str) -> bool:
+        """
+        Check if a Malayalam token is a finite main verb or verbal predicate.
+        """
+        clean_w = strip_punctuation(word).strip()
+        if not clean_w:
+            return False
+
+        # 1. mlmorph morphological analysis
+        try:
+            analyses = self.ssf_pipeline._analysis_layer.analyser.analyse(clean_w)
+            for raw, _ in analyses:
+                if any(tag in raw for tag in ("<v>", "<verb>", "<present>", "<past>", "<future>", "<cvb", "<imperative-mood>", "<permissive-mood>", "<conditional-mood>")):
+                    if not (clean_w.endswith("ത്") and "<n><deriv>" in raw):
+                        return True
+        except Exception:
+            pass
+
+        # 2. Surface finite verb suffix heuristics
+        finite_verb_suffixes = (
+            "ുന്നു", "ിച്ചു", "ച്ചു", "ഞ്ഞു", "ന്നു",
+            "ാറുണ്ട്", "ാറില്ല", "ചെയ്യുന്നു", "ഉണ്ട്", "ആണ്", "ആയിരുന്നു"
+        )
+        if any(clean_w.endswith(sfx) for sfx in finite_verb_suffixes):
+            if clean_w not in ("ഇന്ത്യൻ", "വടക്കൻ", "തെക്കൻ", "പലതും", "എല്ലാം", "മറ്റും"):
+                return True
+
+        return False
+
+    def _select_focus_constituent(
+        self,
+        clean_en_sent: str,
+        clean_ml_sent: str,
+        english_focus: str,
+        pre_alignment: Dict[str, Any],
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """
+        Collect all candidate Malayalam tokens aligned to the English focus,
+        determine which token or contiguous Malayalam constituent corresponds
+        to the semantic focus (never selecting finite/main verbs over nominals),
+        and return the selected constituent along with candidate alignments for debugging.
+        """
+        src_tokens = pre_alignment.get("src_tokens", clean_en_sent.split())
+        tgt_tokens = pre_alignment.get("tgt_tokens", clean_ml_sent.split())
+        src_to_tgt = pre_alignment.get("src_to_tgt_alignments", [])
+
+        # 1. Normalize English focus words
+        en_focus_words = [strip_punctuation(w).lower() for w in english_focus.strip().split() if strip_punctuation(w)]
+        if not en_focus_words:
+            fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
+            return fallback, []
+
+        # 2. Identify matching source indices in English sentence
+        matching_src_indices = set()
+        for i, src_w in enumerate(src_tokens):
+            c_w = strip_punctuation(src_w).lower()
+            if c_w in en_focus_words or any(fw == c_w or (len(fw) >= 3 and (fw in c_w or c_w in fw)) for fw in en_focus_words):
+                matching_src_indices.add(i)
+
+        # 3. Collect all candidate alignments (tgt_index, tgt_word, src_index, src_word)
+        candidate_alignments = []
+        seen_pairs = set()
+        for item in src_to_tgt:
+            s_i = item["src_index"]
+            t_j = item["tgt_index"]
+            src_w = strip_punctuation(item["src_word"]).lower()
+            if s_i in matching_src_indices or src_w in en_focus_words or any(fw in src_w for fw in en_focus_words):
+                pair_key = (s_i, t_j)
+                if pair_key not in seen_pairs and t_j < len(tgt_tokens):
+                    seen_pairs.add(pair_key)
+                    candidate_alignments.append({
+                        "src_index": s_i,
+                        "src_word": item["src_word"],
+                        "tgt_index": t_j,
+                        "tgt_word": tgt_tokens[t_j],
+                    })
+
+        if not candidate_alignments:
+            fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
+            return fallback, []
+
+        # 4. Separate candidate Malayalam indices into nominal/argument and verbal
+        cand_indices = sorted(list(set(c["tgt_index"] for c in candidate_alignments)))
+        non_verb_indices = [idx for idx in cand_indices if not self._is_verbal_token(tgt_tokens[idx])]
+        verb_indices = [idx for idx in cand_indices if self._is_verbal_token(tgt_tokens[idx])]
+
+        # Use non-verb indices if present to prevent spurious verb focus
+        selected_indices = non_verb_indices if non_verb_indices else verb_indices
+
+        if not selected_indices:
+            selected_indices = cand_indices
+
+        # 5. Form contiguous constituent span for multi-word focus phrases
+        min_idx = min(selected_indices)
+        max_idx = max(selected_indices)
+        span_indices = list(range(min_idx, max_idx + 1))
+        span_length = len(span_indices)
+        max_allowed_span = len(en_focus_words) + 2
+
+        # If all tokens in the span from min_idx to max_idx are non-verbal,
+        # bridge the span into a single complete multi-word constituent (e.g. 'റോബര്‍ട്ട് ബോബി ജോര്‍ജ്ജിനെ')
+        all_non_verbal = all(not self._is_verbal_token(tgt_tokens[i]) for i in span_indices)
+
+        if all_non_verbal and (span_length <= max_allowed_span or len(en_focus_words) > 1):
+            constituent_tokens = [strip_punctuation(tgt_tokens[i]) for i in span_indices]
+            selected_focus = " ".join(t for t in constituent_tokens if t)
+            reconstructed_span = f"[{min_idx}..{max_idx}] -> '{selected_focus}'"
+            return selected_focus, candidate_alignments, reconstructed_span
+
+        # Otherwise, group contiguous clusters and select the longest cluster
+        clusters = []
+        current_cluster = [selected_indices[0]]
+        for idx in selected_indices[1:]:
+            if idx == current_cluster[-1] + 1:
+                current_cluster.append(idx)
+            else:
+                clusters.append(current_cluster)
+                current_cluster = [idx]
+        clusters.append(current_cluster)
+
+        # Select the longest contiguous cluster
+        best_cluster = max(clusters, key=len)
+
+        # Extract complete contiguous constituent words
+        constituent_tokens = [strip_punctuation(tgt_tokens[i]) for i in range(best_cluster[0], best_cluster[-1] + 1)]
+        selected_focus = " ".join(t for t in constituent_tokens if t)
+        reconstructed_span = f"[{best_cluster[0]}..{best_cluster[-1]}] -> '{selected_focus}'"
+
+        return selected_focus, candidate_alignments, reconstructed_span
+
     def process(
         self,
         english_sentence: str,
@@ -273,22 +402,27 @@ class AwesomeCleftPipeline:
         # Step 1: Pre-Cleft Alignment (English -> Malayalam)
         pre_alignment = self.aligner.align(clean_en_sent, clean_ml_sent)
 
-        # Step 1b: Focus Projection (If English focus provided but Malayalam focus missing)
+        # Step 1b: Focus Projection & Semantic Constituent Resolution
         projected_ml_focus = malayalam_focus
+        candidate_alignments = []
+        reconstructed_span = ""
+
         if english_focus and not projected_ml_focus:
-            en_clean_focus = strip_punctuation(english_focus).lower()
-            for align_item in pre_alignment["src_to_tgt_alignments"]:
-                src_w = strip_punctuation(align_item["src_word"]).lower()
-                if src_w == en_clean_focus or en_clean_focus in src_w:
-                    projected_ml_focus = align_item["tgt_word"]
-                    break
+            projected_ml_focus, candidate_alignments, reconstructed_span = self._select_focus_constituent(
+                clean_en_sent=clean_en_sent,
+                clean_ml_sent=clean_ml_sent,
+                english_focus=english_focus,
+                pre_alignment=pre_alignment,
+            )
 
         if not projected_ml_focus:
             # Fallback to first word of Malayalam sentence
             ml_words = clean_ml_sent.strip().split()
             projected_ml_focus = ml_words[0] if ml_words else ""
+            reconstructed_span = f"[0] -> '{projected_ml_focus}'"
 
         clean_proj_focus = strip_punctuation(projected_ml_focus)
+
 
         # Step 2: SSF / Neural Clefting Pipeline Execution
         if self.cleft_engine == "neural":
@@ -320,12 +454,25 @@ class AwesomeCleftPipeline:
         # 3b. English -> Malayalam alignment
         post_align_en_to_ml = self.aligner.align(clean_en_sent, emphasized_ml_sentence)
 
+        # Compute English (Source) Prosody Label Sequence
+        en_tokens = clean_en_sent.split()
+        en_focus_words = [strip_punctuation(w).lower() for w in (english_focus or "").split() if strip_punctuation(w)]
+        en_prosody_labels = []
+        for w in en_tokens:
+            cw = strip_punctuation(w).lower()
+            if cw in en_focus_words or any(fw == cw for fw in en_focus_words):
+                en_prosody_labels.append(1)
+            else:
+                en_prosody_labels.append(0)
+
         return {
             "english_sentence": clean_en_sent,
             "original_malayalam_sentence": clean_ml_sent,
             "english_focus": english_focus,
             "focused_malayalam_constituent": clean_proj_focus,
             "cleft_engine": self.cleft_engine,
+            "english_prosody_label_sequence": en_prosody_labels,
+            "malayalam_prosody_label_sequence": cleft_dict.get("prosody_label_sequence", []),
             "pre_cleft_en_to_ml_alignment": pre_alignment,
             "cleft_pipeline_output": cleft_dict,
             "emphasized_malayalam_sentence": emphasized_ml_sentence,
@@ -335,34 +482,32 @@ class AwesomeCleftPipeline:
 
 
 def print_pipeline_report(res: Dict[str, Any]):
-    print("\n" + "=" * 70)
-    print(" CROSS-LINGUAL FOCUS TRANSFER & DUAL ALIGNMENT REPORT")
-    print("=" * 70)
     print(f"1. English Sentence            : {res['english_sentence']}")
     print(f"2. Original Malayalam Sentence : {res['original_malayalam_sentence']}")
     print(f"3. English Focus Marker        : {res['english_focus'] or '—'}")
     print(f"4. Projected Malayalam Focus   : {res['focused_malayalam_constituent']}")
 
-    print("\n--- [Step 1] Pre-Cleft Alignment (English -> Malayalam) ---")
+    print("\n--- English -> Malayalam ---")
     for pair in res["pre_cleft_en_to_ml_alignment"]["aligned_pairs"]:
         print(f"  {pair[0]:<20} <---> {pair[1]:<20}")
 
     cleft = res["cleft_pipeline_output"]
-    print("\n--- [Step 2] Clefting Pipeline Output ---")
-    print(f"  * Emphasized Malayalam Sentence : {res['emphasized_malayalam_sentence']}")
-    print(f"  * Prosody Label Sequence        : {cleft['prosody_label_sequence']}")
-    print(f"  * Focus Position (Before -> After): {cleft['position_before']} -> {cleft['position_after']}")
+    print("\n--- Clefting Pipeline Output ---")
+    print(f"  * Emphasized Malayalam Sentence             : {res['emphasized_malayalam_sentence']}")
+    print(f"  * Prosody Label Sequence (Source / English)  : {res['english_prosody_label_sequence']}")
+    print(f"  * Prosody Label Sequence (Target / Malayalam): {res['malayalam_prosody_label_sequence']}")
+    print(f"  * Focus Position (Before -> After)          : {cleft['position_before']} -> {cleft['position_after']}")
 
     aanu = cleft.get("aanu_attachment", {})
     if aanu and aanu.get("attached_to") != "none":
         print(f"  * ആണ് Attachment                : {aanu.get('attached_form')} (attached to {aanu.get('attached_to')} '{aanu.get('target_word')}')")
     print(f"  * Nominalized Verb              : {cleft['nominalized_verb']}")
 
-    print("\n--- [Step 3a] Post-Cleft Alignment (Malayalam -> English) ---")
+    print("\n--- Malayalam -> English ---")
     for item in res["post_cleft_ml_to_en_alignment"]["src_to_tgt_alignments"]:
         print(f"  [{item['src_index']}] {item['src_word']:<20} ---> [{item['tgt_index']}] {item['tgt_word']:<20}")
 
-    print("\n--- [Step 3b] Post-Cleft Alignment (English -> Malayalam) ---")
+    print("\n--- English -> Malayalam ---")
     for item in res["post_cleft_en_to_ml_alignment"]["src_to_tgt_alignments"]:
         print(f"  [{item['src_index']}] {item['src_word']:<20} ---> [{item['tgt_index']}] {item['tgt_word']:<20}")
 
@@ -382,11 +527,33 @@ def main():
     parser.add_argument("--ml_focus", "-mf", type=str, default="", help="Malayalam focus word (optional, derived via alignment if omitted)")
     parser.add_argument("--op", "-o", type=str, default="CLEFT", choices=["CLEFT", "FRONTING"], help="Focus operation")
 
-    args = parser.parse_args()
+    # Sanitize sys.argv to handle accidental '= "value"' syntax from shell
+    cleaned_argv = []
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "=" and i + 1 < len(sys.argv):
+            cleaned_argv.append(sys.argv[i + 1])
+            i += 2
+            continue
+        cleaned_argv.append(arg)
+        i += 1
+
+    args, unknown = parser.parse_known_args(cleaned_argv)
 
     en_sent = args.en or "Father bought a book in the garden yesterday."
     ml_sent = args.ml or "അച്ഛൻ ഇന്നലെ തോട്ടത്തിൽ വെച്ച് പുസ്തകം വാങ്ങി."
-    en_focus = args.en_focus or "Father"
+    en_focus = args.en_focus or ""
+
+    # If extra positional arguments were provided (e.g. from shell quoting), append to focus
+    if unknown and not en_focus:
+        en_focus = " ".join(unknown)
+    elif unknown and en_focus:
+        en_focus = f"{en_focus} {' '.join(unknown)}"
+
+    en_focus = en_focus.strip().lstrip("=").strip().strip("'\"").strip()
+    if not en_focus:
+        en_focus = "Father"
 
     pipeline = AwesomeCleftPipeline()
     res = pipeline.process(

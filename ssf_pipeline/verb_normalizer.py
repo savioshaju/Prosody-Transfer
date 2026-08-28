@@ -308,25 +308,162 @@ class VerbNormalizer:
         # Step 1: Analyse
         raw_analyses = self._analyser.analyse(verb)
         if not raw_analyses:
-            # Surface rule fallback for present/past/future verbs e.g. സ്ഥിതിചെയ്യുന്നു -> സ്ഥിതിചെയ്യുന്നത്
+            # ----------------------------------------------------------
+            # Surface rule fallback for compound/OOV verbs not in FST.
+            # Implements all rows of the SSF verb normalization table:
+            #
+            # Past affirmative:
+            #   -ന്നു  → -ന്നത്     (e.g. വന്നു → വന്നത്)
+            #   -ി     → -ിയത്      (e.g. വാങ്ങി → വാങ്ങിയത്)
+            #   -ിച്ചു → -ിച്ചത്     (e.g. ചെയ്തിച്ചു → ചെയ്തിച്ചത്)
+            #   -ച്ചു  → -ച്ചത്      (e.g. അയച്ചു → അയച്ചത്)
+            #   -ഞ്ഞു  → -ഞ്ഞത്     (e.g. കൊടുഞ്ഞു → കൊടുഞ്ഞത്)
+            # Present affirmative:
+            #   -ുന്നു → -ുന്നത്     (e.g. സ്ഥിതിചെയ്യുന്നു → സ്ഥിതിചെയ്യുന്നത്)
+            #   -യുന്നു → -യുന്നത്   (handled by -ുന്നു since it ends the same)
+            # Future affirmative:
+            #   -ും    → -ുന്നത്     (e.g. വരും → വരുന്നത്)
+            # Negative:
+            #   -ുന്നില്ല → strip -ുന്നില്ല + -ാത്തത്
+            #   -ഇല്ല  → strip -ഇല്ല + -ാത്തത്
+            # Habitual affirmative:
+            #   -ാറുണ്ട് → -ാറുള്ളത്  (e.g. വരാറുണ്ട് → വരാറുള്ളത്)
+            # Habitual negative:
+            #   -ാറില്ല → -ാറില്ലാത്തത് (e.g. വരാറില്ല → വരാറില്ലാത്തത്)
+            # Obligative:
+            #   -ണം   → -േണ്ടത്      (e.g. ചെയ്യണം → ചെയ്യേണ്ടത്)
+            # Permissive:
+            #   -ാം   → -ാവുന്നത്    (e.g. വരാം → വരാവുന്നത്)
+            # Already nominalized:
+            #   -ത്   → passthrough
+            # ----------------------------------------------------------
+
+            # Already nominalized
+            if verb.endswith("ത്") and any(verb.endswith(sfx) for sfx in ("ുന്നത്", "ന്നത്", "ിയത്", "ച്ചത്", "ഞ്ഞത്", "ാത്തത്", "േണ്ടത്")):
+                result["status"] = "VALID"
+                result["normalized"] = verb
+                result["verb_class"] = CLASS_ALREADY_NORM
+                result["normalized_analysis"] = f"{verb}<v><adv-clause-rp-present><n><deriv>"
+                result["failure_reason"] = "Input is already in nominalized form."
+                return result
+
+            # Habitual negative: -ാറില്ല → -ാറില്ലാത്തത്
+            if verb.endswith("ാറില്ല"):
+                norm_form = verb + "ാത്തത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_HABITUAL_NEG
+                result["normalized_analysis"] = f"{norm_form}<v><habitual-aspect><neg><n><deriv>"
+                return result
+
+            # Habitual affirmative: -ാറുണ്ട് → -ാറുള്ളത്
+            if verb.endswith("ാറുണ്ട്"):
+                norm_form = verb[:-6] + "ാറുള്ളത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_HABITUAL_POS
+                result["normalized_analysis"] = f"{norm_form}<v><habitual-aspect><n><deriv>"
+                return result
+
+            # Obligative: -ണം → -േണ്ടത്
+            if verb.endswith("ണം"):
+                norm_form = verb[:-2] + "േണ്ടത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_OBLIGATIVE
+                result["normalized_analysis"] = f"{norm_form}<v><cvb-adv-part-simul><n><deriv>"
+                return result
+
+            # Permissive: -ാം → -ാവുന്നത്
+            if verb.endswith("ാം"):
+                norm_form = verb[:-2] + "ാവുന്നത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_PERMISSIVE
+                result["normalized_analysis"] = f"{norm_form}<v><permissive-mood><n><deriv>"
+                return result
+
+            # Negative: -ുന്നില്ല → -ാത്തത്
+            if verb.endswith("ുന്നില്ല"):
+                norm_form = verb[:-len("ുന്നില്ല")] + "ാത്തത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_NEG
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present-neg><n><deriv>"
+                return result
+
+            # Negative: -ഇല്ല → -ാത്തത്
+            if verb.endswith("ില്ല"):
+                norm_form = verb[:-len("ില്ല")] + "ാത്തത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_NEG
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present-neg><n><deriv>"
+                return result
+
+            # Present affirmative: -ുന്നു → -ുന്നത്
             if verb.endswith("ുന്നു"):
                 norm_form = verb[:-4] + "ുന്നത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
                 result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
                 return result
-            elif verb.endswith("ിച്ചു"):
+
+            # Past affirmative: -ിച്ചു → -ിച്ചത്
+            if verb.endswith("ിച്ചു"):
                 norm_form = verb[:-4] + "ിച്ചത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
                 result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
                 return result
-            elif verb.endswith("ി"):
+
+            # Past affirmative: -ച്ചു → -ച്ചത്
+            if verb.endswith("ച്ചു"):
+                norm_form = verb[:-2] + "ത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+                return result
+
+            # Past affirmative: -ഞ്ഞു → -ഞ്ഞത്
+            if verb.endswith("ഞ്ഞു"):
+                norm_form = verb[:-2] + "ത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+                return result
+
+            # Past affirmative: -ന്നു → -ന്നത്
+            if verb.endswith("ന്നു"):
+                norm_form = verb[:-2] + "ത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+                return result
+
+            # Past affirmative: -ി → -ിയത്
+            if verb.endswith("ി"):
                 norm_form = verb + "യത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
                 result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
                 return result
+
+            # Future affirmative: -ും → -ുന്നത്
+            if verb.endswith("ും"):
+                norm_form = verb[:-2] + "ുന്നത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
+                return result
+
             result["failure_reason"] = "mlmorph returned no analysis for this form."
             return result
 
