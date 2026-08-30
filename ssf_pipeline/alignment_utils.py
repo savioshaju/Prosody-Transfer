@@ -100,14 +100,27 @@ def extract_alignment_and_prosody(
     pos_before = []
     fc_len = len(clean_fc)
     if fc_len > 0:
+        # A. Exact contiguous slice match
         for i in range(len(clean_src) - fc_len + 1):
             if clean_src[i : i + fc_len] == clean_fc:
                 pos_before = list(range(i, i + fc_len))
                 break
+        
+        # B. Fallback: best contiguous window matching clean_fc
         if not pos_before:
-            for i, sw in enumerate(clean_src):
-                if any(is_word_match(sw, fcw) for fcw in clean_fc):
-                    pos_before.append(i)
+            best_score = 0
+            best_window = None
+            for i in range(len(clean_src)):
+                for j in range(i + 1, min(len(clean_src) + 1, i + fc_len + 4)):
+                    window = clean_src[i:j]
+                    score = sum(1 for w in window if any(is_word_match(w, fcw) for fcw in clean_fc))
+                    length_penalty = abs(len(window) - fc_len) * 0.1
+                    adj_score = score - length_penalty
+                    if adj_score > best_score:
+                        best_score = adj_score
+                        best_window = list(range(i, j))
+            if best_window and best_score > 0:
+                pos_before = best_window
 
     prosody_label_sequence = [1 if i in pos_before else 0 for i in range(len(src_tokens))]
 
@@ -133,14 +146,27 @@ def extract_alignment_and_prosody(
     # 3. Position After Movement
     pos_after = []
     if fc_len > 0:
+        # A. Exact / inflected contiguous slice match
         for j in range(len(clean_tgt) - fc_len + 1):
             if all(is_word_match(clean_tgt[j + k], clean_fc[k]) for k in range(fc_len)):
                 pos_after = list(range(j, j + fc_len))
                 break
+        
+        # B. Fallback: best contiguous window matching clean_fc
         if not pos_after:
-            for j, tw in enumerate(clean_tgt):
-                if any(is_word_match(tw, fcw) for fcw in clean_fc):
-                    pos_after.append(j)
+            best_score = 0
+            best_window = None
+            for i in range(len(clean_tgt)):
+                for j in range(i + 1, min(len(clean_tgt) + 1, i + fc_len + 4)):
+                    window = clean_tgt[i:j]
+                    score = sum(1 for w in window if any(is_word_match(w, fcw) for fcw in clean_fc))
+                    length_penalty = abs(len(window) - fc_len) * 0.1
+                    adj_score = score - length_penalty
+                    if adj_score > best_score:
+                        best_score = adj_score
+                        best_window = list(range(i, j))
+            if best_window and best_score > 0:
+                pos_after = best_window
 
     # 4. ആണ് (aanu) Attachment Analysis
     aanu_info = {

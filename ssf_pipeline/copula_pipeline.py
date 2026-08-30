@@ -5,51 +5,52 @@ from mlmorph import Analyser, Generator
 logger = logging.getLogger(__name__)
 
 # Active Malayalam case suffixes used by detect_css() to preserve case during copula attachment
-# Extended with all allomorphs from the SSF manual
+# Extended with all allomorphs from the SSF manual (both atomic chillu and virama encodings)
 CASE_SUFFIXES = {
-    "ablative": ["ഇൽനിന്ന്", "ൽനിന്ന്", "നിന്ന്", "നിന്നു"],
-    "instrumental": ["കൊണ്ട്", "ത്തിനാൽ", "ഇനാൽ", "യാൽ", "ആൽ"],
-    "genitive": ["ഇന്റെ", "ന്റെ", "്റെ", "യുടെ", "ുടെ"],
-    "locative": ["ത്തിൽ", "വിൽ", "യിൽ", "ിൽ", "ൽ", "റ്റിൽ", "ത്ത്"],
-    "dative": ["യ്ക്ക്", "ക്ക്", "ഇന്", "ന്"],
+    "ablative": ["ഇൽനിന്ന്", "ൽനിന്ന്", "ഇല്നിന്ന്", "ല്നിന്ന്", "നിന്ന്", "നിന്നു"],
+    "instrumental": ["കൊണ്ട്", "ത്തിനാൽ", "ഇനാൽ", "യാൽ", "ആൽ", "ത്തിനാല്", "ഇനാല്", "യാല്", "ആല്"],
+    "genitive": ["ഇന്റെ", "ന്റെ", "്റെ", "യുടെ", "ുടെ", "ിന്റെ", "ിന്റെ"],
+    "locative": ["ത്തിൽ", "തിൽ", "വിൽ", "യിൽ", "റ്റിൽ", "ില്", "തിൽ", "ത്തിൽ", "ത്ത്", "ൽ", "ല്", "യിൽ", "വിൽ", "റ്റിൽ", "ില്", "തില്", "ത്തില്", "വില്", "യില്", "റ്റില്", "ിൽ"],
+    "dative": ["യ്ക്ക്", "ക്ക്", "ഇന്", "ന്", "ഇൻ", "ൻ"],
     "accusative": ["യെ", "നെ", "െ"],
     "sociative": ["ത്തോട്", "ഇനോട്", "വിനോട്", "യോട്", "ഓട്"]
 }
 
+PUNCTUATION_CHARS = set(".,!?;:\"'“”‘’()[]{}—–-«»/\\")
 
-def attach_aanu_surface(word: str) -> str:
+
+def split_punctuation(token: str) -> tuple:
     """
-    Direct deterministic surface phonological attachment of 'ആണ്' to a single Malayalam word.
-    Used when FST generation does not have an explicit dictionary entry for the single word.
+    Splits a token into (leading_punct, core_linguistic_word, trailing_punct).
+    Treats structural punctuation (commas, colons, quotes, brackets, etc.)
+    separately from the linguistic stem, ensuring morphology applies to the stem
+    and restores punctuation outside the affixed form.
 
-    Implements all 5 SSF-manual sandhi processes for ആണ്:
+    Examples:
+      - 'പച്ചമത്സ്യം,'  -> ('', 'പച്ചമത്സ്യം', ',')
+      - 'ഉയരങ്ങളിൽ:'   -> ('', 'ഉയരങ്ങളിൽ', ':')
+      - '“രൂപത്തിൽ”'   -> ('“', 'രൂപത്തിൽ', '”')
+    """
+    if not token or not isinstance(token, str):
+        return "", "", ""
 
-    1. ആഗമം (Āgama) — Insertion / Augmentation:
-       a) യകാരാഗമം (Yakāra-āgamam) — യ insertion:
-          V(അ,ആ,ഇ,ഈ,എ,ഏ,ഐ) + ആണ് → V + യ + ആണ്
-          Examples: കസേര→കസേരയാണ്, കുട്ടി→കുട്ടിയാണ്, നാളെ→നാളെയാണ്
-       b) വകാരാഗമം (Vakāra-āgamam) — വ insertion:
-          V(ഉ,ഊ,ഒ,ഓ,ഔ) + ആണ് → V + വ + ആണ്
-          Examples: ഗുരു→ഗുരുവാണ്, ശത്രു→ശത്രുവാണ്
+    start = 0
+    while start < len(token) and token[start] in PUNCTUATION_CHARS:
+        start += 1
 
-    2. ആദേശം (Ādēśa) — Substitution / Replacement:
-       ം + ആണ് → മ + ആണ്  (Anusvāra resolution)
-       Examples: പുസ്തകം→പുസ്തകമാണ്, മരം→മരമാണ്
+    end = len(token)
+    while end > start and token[end - 1] in PUNCTUATION_CHARS:
+        end -= 1
 
-    3. വ്യഞ്ജന–സ്വര സന്ധി (Vyañjana–Svara Sandhi) — Consonant–Vowel Joining:
-       ൻ + ആ → നാ  (e.g. അവൻ→അവനാണ്)
-       ൾ + ആ → ളാ  (e.g. അവൾ→അവളാണ്)
-       ർ + ആ → രാ  (e.g. അവർ→അവരാണ്)
-       ൽ + ആ → ലാ  (e.g. വീട്ടിൽ→വീട്ടിലാണ്)
-       ൺ + ആ → ണാ  (e.g. കൺ→കണാണ്)
-       ൿ + ആ → കാ
+    leading = token[:start]
+    core = token[start:end]
+    trailing = token[end:]
+    return leading, core, trailing
 
-    4. Virāma / Chandrakkala Deletion:
-       C് + ആ → Cാ  (final chandrakkala removed when vowel attaches)
-       Examples: നിലത്ത്→നിലത്താണ്, കൊണ്ട്→കൊണ്ടാണ്, ഓട്→ഓടാണ്
 
-    5. ലോപം (Lōpa) — Deletion / Elision:
-       Deletes a phonological element at boundary when two morphemes combine.
+def _attach_aanu_surface_core(word: str) -> str:
+    """
+    Direct deterministic surface phonological attachment of 'ആണ്' to a clean single Malayalam word stem.
     """
     if not word:
         return "ആണ്"
@@ -64,18 +65,23 @@ def attach_aanu_surface(word: str) -> str:
         return word[:-1] + "മാണ്"
 
     # ---------------------------------------------------------------
-    # 3. വ്യഞ്ജന–സ്വര സന്ധി — Chillu Consonant–Vowel Joining
+    # 3. വ്യഞ്ജന–സ്വര സന്ധി — Chillu / Virama Consonant–Vowel Joining
     # ---------------------------------------------------------------
-    if word.endswith("ൻ"):
-        return word[:-1] + "നാണ്"
-    if word.endswith("ൽ"):
-        return word[:-1] + "ലാണ്"
-    if word.endswith("ൾ"):
-        return word[:-1] + "ളാണ്"
-    if word.endswith("ർ"):
-        return word[:-1] + "രാണ്"
-    if word.endswith("ൺ"):
-        return word[:-1] + "ണാണ്"
+    if word.endswith("ൽ") or word.endswith("ല്"):
+        stem = word[:-1] if word.endswith("ൽ") else word[:-2]
+        return stem + "ലാണ്"
+    if word.endswith("ൻ") or word.endswith("ന്"):
+        stem = word[:-1] if word.endswith("ൻ") else word[:-2]
+        return stem + "നാണ്"
+    if word.endswith("ൾ") or word.endswith("ള്"):
+        stem = word[:-1] if word.endswith("ൾ") else word[:-2]
+        return stem + "ളാണ്"
+    if word.endswith("ർ") or word.endswith("ര്"):
+        stem = word[:-1] if word.endswith("ർ") else word[:-2]
+        return stem + "രാണ്"
+    if word.endswith("ൺ") or word.endswith("ണ്"):
+        stem = word[:-1] if word.endswith("ൺ") else word[:-2]
+        return stem + "ണാണ്"
     if word.endswith("ൿ"):
         return word[:-1] + "കാണ്"
 
@@ -92,7 +98,6 @@ def attach_aanu_surface(word: str) -> str:
         ("പ്പ്", "പ്പാണ്"),   # e.g. ചെപ്പ്→ചെപ്പാണ്
         ("ന്ന്", "ന്നാണ്"),   # ablative നിന്ന് → നിന്നാണ്
         ("ണ്ട്", "ണ്ടാണ്"),   # e.g. കൊണ്ട്→കൊണ്ടാണ്  (instrumental)
-        ("ണ്ട്", "ണ്ടാണ്"),   # e.g. ഉണ്ട്→ഉണ്ടാണ്
         ("ച്ച്", "ച്ചാണ്"),   # e.g. പുച്ച്→പുച്ചാണ്
         ("ല്ല്", "ല്ലാണ്"),
         ("ള്ള്", "ള്ളാണ്"),
@@ -106,17 +111,64 @@ def attach_aanu_surface(word: str) -> str:
         return word[:-1] + "ാണ്"
 
     # ---------------------------------------------------------------
+    # Predicate complement suffix -ായി → -ായാണ്
+    # (e.g. വ്യക്തിയായി → വ്യക്തിയായാണ്, ആയി → ആയാണ്)
+    # Must precede Yakāra-āgamam to avoid producing *-ായിയാണ്.
+    # ---------------------------------------------------------------
+    if word.endswith("ായി"):
+        return word[:-1] + "ാണ്"
+
+    # ---------------------------------------------------------------
     # 1. ആഗമം — Vowel-based Insertion
     # ---------------------------------------------------------------
     # 1b. വകാരാഗമം (Vakāra-āgamam): rounded/back vowels → വ insertion
-    #     ഉ, ഊ, ഒ, ഓ, ഔ  + ആണ് → + വാണ്
-    if any(word.endswith(v) for v in ("ു", "ൂ", "ൊ", "ോ", "ൌ", "ൗ")):
+    #     ഉ, ഊ, ഒ, ഓ, ഔ (+ vowel signs ു, ൂ, ൊ, ോ, ൌ, ൗ) + ആണ് → + വാണ്
+    if any(word.endswith(v) for v in ("ു", "ൂ", "ൊ", "ോ", "ൌ", "ൗ", "ഉ", "ഊ", "ഒ", "ഓ", "ഔ")):
         return word + "വാണ്"
 
     # 1a. യകാരാഗമം (Yakāra-āgamam): front/central vowels → യ insertion
-    #     അ, ആ, ഇ, ഈ, എ, ഏ, ഐ  + ആണ് → + യാണ്
+    #     അ, ആ, ഇ, ഈ, എ, ഏ, ഐ (+ vowel signs ാ, ി, ീ, െ, േ, ൈ) + ആണ് → + യാണ്
     #     This is the default for all remaining vowel-final words.
     return word + "യാണ്"
+
+
+def attach_aanu_surface(word: str) -> str:
+    """
+    Direct deterministic surface phonological attachment of 'ആണ്' to a single Malayalam word,
+    correctly preserving leading and trailing punctuation (e.g. 'ഉയരങ്ങളിൽ,' -> 'ഉയരങ്ങളിലാണ്,').
+    """
+    if not word:
+        return "ആണ്"
+    leading, core, trailing = split_punctuation(word)
+    if not core:
+        return word + "ആണ്"
+    if core.endswith("ആണ്") or core.endswith("ാണ്"):
+        return word
+    copular_core = _attach_aanu_surface_core(core)
+    return f"{leading}{copular_core}{trailing}"
+
+
+def is_valid_sandhi(word: str, generated: str) -> bool:
+    """
+    Validates if a generated copula form obeys Malayalam Sandhi rules.
+    Flags invalid attachments like 'ഐാണ്' or 'ഇാണ്' where a vowel-final stem
+    directly appends 'ാണ്' without inserting 'യ' (Yakāra-āgamam) or 'വ' (Vakāra-āgamam).
+    """
+    if not generated or not word:
+        return True
+    
+    clean_w = word.rstrip(".,!?;:\"'”’")
+    clean_g = generated.rstrip(".,!?;:\"'”’")
+    
+    _ALL_VOWELS = (
+        "അ", "ആ", "ഇ", "ഈ", "എ", "ഏ", "ഐ", "ഉ", "ഊ", "ഒ", "ഓ", "ഔ",
+        "ാ", "ി", "ീ", "െ", "േ", "ൈ", "ു", "ൂ", "ൊ", "ോ", "ൌ", "ൗ"
+    )
+    for v in _ALL_VOWELS:
+        if clean_w.endswith(v) and clean_g.endswith(v + "ാണ്"):
+            return False
+            
+    return True
 
 
 class MorphAnalysis:
@@ -269,14 +321,18 @@ class CopulaLayer:
             return [css[0] + r for r in rest_candidates] + ["ി" + r for r in rest_candidates]
 
         pattern = css
-        if pattern.endswith("്"):
+        if pattern.endswith("ൽ") or pattern.endswith("ല്"):
+            pattern = (pattern[:-1] if pattern.endswith("ൽ") else pattern[:-2]) + "ല"
+        elif pattern.endswith("ൻ") or pattern.endswith("ന്"):
+            pattern = (pattern[:-1] if pattern.endswith("ൻ") else pattern[:-2]) + "ന"
+        elif pattern.endswith("ർ") or pattern.endswith("ര്"):
+            pattern = (pattern[:-1] if pattern.endswith("ർ") else pattern[:-2]) + "ര"
+        elif pattern.endswith("ൾ") or pattern.endswith("ള്"):
+            pattern = (pattern[:-1] if pattern.endswith("ൾ") else pattern[:-2]) + "ള"
+        elif pattern.endswith("ൺ") or pattern.endswith("ണ്"):
+            pattern = (pattern[:-1] if pattern.endswith("ൺ") else pattern[:-2]) + "ണ"
+        elif pattern.endswith("്"):
             pattern = pattern[:-1]
-        elif pattern.endswith("ൽ"):
-            pattern = pattern[:-1] + "ല"
-        elif pattern.endswith("ൻ"):
-            pattern = pattern[:-1] + "ന"
-        elif pattern.endswith("ർ"):
-            pattern = pattern[:-1] + "ര"
             
         return [pattern]
 
@@ -301,22 +357,43 @@ class CopulaLayer:
     def transform_word(self, word, selected_analysis):
         """
         Applies direct morphological 'ആണ്' attachment to a single selected word.
-        Preserves existing case/morphological realization of the input word.
-        Does NOT synthesize Dvitva, adjective nominalizations, or participle nominalizations.
+        Preserves existing case/morphological realization of the input word and
+        guarantees that structural punctuation (comma, colon, quotes) is retained
+        outside the affixed form (e.g. 'ഉയരങ്ങളിൽ,' -> 'ഉയരങ്ങളിലാണ്,').
 
         Returns:
             copula_form (str)
             case_preserved (str): 'YES', 'NO', or 'UNKNOWN'
             copula_path (str): 'already-copular', 'case-preserving', 'normal'
         """
+        if not word:
+            return "ആണ്", "YES", "empty"
+
+        leading, core, trailing = split_punctuation(word)
+        if not core:
+            return word + "ആണ്", "YES", "punct_only"
+
         raw_analysis = selected_analysis.raw_analysis if selected_analysis else ""
 
         # 1. Already copular check
-        if "ആണ്" in word or (raw_analysis and "<aff>" in raw_analysis):
-            return word, "YES", "already-copular"
+        if "ആണ്" in core or (raw_analysis and "<aff>" in raw_analysis):
+            return f"{leading}{core}{trailing}", "YES", "already-copular"
+
+        # 1b. Predicate complement / adverbial suffix -ായി → -ായാണ്
+        if core.endswith("ായി"):
+            return f"{leading}{attach_aanu_surface(core)}{trailing}", "YES", "predicate-complement"
+
+        # 1c. Focus particles: -മാത്രം → -മാത്രമാണ്, -മാത്രമേ → -മാത്രമേയുള്ളൂ
+        if core.endswith("മാത്രം"):
+            res = core[:-len("മാത്രം")] + "മാത്രമാണ്"
+            return f"{leading}{res}{trailing}", "YES", "focus-particle"
+
+        if core.endswith("മാത്രമേ"):
+            res = core[:-len("മാത്രമേ")] + "മാത്രമേയുള്ളൂ"
+            return f"{leading}{res}{trailing}", "YES", "focus-particle"
 
         # 2. Case-preserving copula generation
-        css = self.detect_css(word, selected_analysis) if selected_analysis else ""
+        css = self.detect_css(core, selected_analysis) if selected_analysis else ""
         if css:
             target_analysis = f"{raw_analysis}ആണ്<aff>"
             results = self.generator.generate(target_analysis)
@@ -325,24 +402,25 @@ class CopulaLayer:
                 for form, weight in results:
                     if form not in generated_forms:
                         generated_forms.append(form)
-                        
+
                 sandhi_patterns = self.get_sandhi_css_candidates(css)
                 filtered = [g for g in generated_forms if any(p in g for p in sandhi_patterns)]
-                if filtered:
-                    return filtered[0], "YES", "case-preserving"
-                return generated_forms[0], "YES", "case-preserving"
-            
+                if filtered and is_valid_sandhi(core, filtered[0]):
+                    return f"{leading}{filtered[0]}{trailing}", "YES", "case-preserving"
+                if generated_forms and is_valid_sandhi(core, generated_forms[0]):
+                    return f"{leading}{generated_forms[0]}{trailing}", "YES", "case-preserving"
+
             # Direct surface fallback preserving case
-            surface_form = attach_aanu_surface(word)
-            return surface_form, "YES", "case-preserving"
+            surface_form = attach_aanu_surface(core)
+            return f"{leading}{surface_form}{trailing}", "YES", "case-preserving"
 
         # 3. Normal direct copula generation for non-case words
         if raw_analysis and "<" in raw_analysis:
             target_analysis = f"{raw_analysis}ആണ്<aff>"
             results = self.generator.generate(target_analysis)
-            if results:
-                return results[0][0], "YES", "normal"
+            if results and is_valid_sandhi(core, results[0][0]):
+                return f"{leading}{results[0][0]}{trailing}", "YES", "normal"
 
         # Direct surface fallback
-        surface_form = attach_aanu_surface(word)
-        return surface_form, "YES", "normal"
+        surface_form = attach_aanu_surface(core)
+        return f"{leading}{surface_form}{trailing}", "YES", "normal"

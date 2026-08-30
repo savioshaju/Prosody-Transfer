@@ -8,11 +8,16 @@ class BertPosTagger:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
             self.model = AutoModelForTokenClassification.from_pretrained(model_name, local_files_only=True)
         except Exception:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForTokenClassification.from_pretrained(model_name)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        self.model.eval()
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = AutoModelForTokenClassification.from_pretrained(model_name)
+            except Exception:
+                self.tokenizer = None
+                self.model = None
+        if self.model is not None:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model.to(self.device)
+            self.model.eval()
 
     def _is_punctuation(self, token):
         # Returns True if the token consists entirely of punctuation characters
@@ -26,6 +31,8 @@ class BertPosTagger:
         """
         if not tokens:
             return []
+        if self.model is None or self.tokenizer is None:
+            return ["RD_UNK"] * len(tokens)
 
         # We tell the tokenizer that the input is already split into words.
         inputs = self.tokenizer(tokens, is_split_into_words=True, return_tensors="pt")

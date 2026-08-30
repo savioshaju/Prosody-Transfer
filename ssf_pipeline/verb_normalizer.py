@@ -53,6 +53,8 @@ TAG_PERMISSIVE       = "permissive-mood"
 TAG_PROMISSIVE       = "promissive-mood"
 TAG_CONDITIONAL      = "conditional-mood"
 TAG_HABITUAL_ASPECT  = "habitual-aspect"
+TAG_SIMPLE_PERFECT   = "simple-perfect-aspect"
+TAG_PERFECT          = "perfect-aspect"
 
 # The obligative compound: verb<cvb-adv-part-simul> + അണ്ടുക<v><cvb-adv-part-absolute>
 OBLIGATIVE_AUX_BLOCK = "അണ്ടുക<v><cvb-adv-part-absolute>"
@@ -130,10 +132,33 @@ class VerbAnalysis:
         self.is_permissive   = (TAG_PERMISSIVE in self.suffix_tags or TAG_PROMISSIVE in self.suffix_tags)
         self.is_conditional  = TAG_CONDITIONAL in self.suffix_tags
 
+        # Perfect / aspectual (e.g. വന്നിരുന്നു, ചെയ്തിരുന്നു)
+        self.is_perfect      = (
+            TAG_SIMPLE_PERFECT in self.suffix_tags
+            or TAG_PERFECT in self.suffix_tags
+            or TAG_SIMPLE_PERFECT in self.tags
+            or TAG_PERFECT in self.tags
+        )
+
         # Habitual-aspect
         self.is_habitual     = TAG_HABITUAL_ASPECT in self.suffix_tags
         self.is_habitual_neg = self.is_habitual and self.has_neg
         self.is_habitual_pos = self.is_habitual and not self.has_neg
+
+        # Progressive / Iterative aspect (e.g. നൽകിക്കൊണ്ടിരിക്കുകയാണ്, ചെയ്യുകയാണ്, വായിക്കുകയാണ്)
+        self.is_progressive  = (
+            TAG_HABITUAL_ASPECT not in self.suffix_tags
+            and (
+                "iterative-aspect" in self.suffix_tags
+                or "iterative-aspect" in self.tags
+                or "<v>ആണ്<aff>" in self.raw
+                or "കൊണ്ടിരിക്കുക" in self.raw
+                or any(
+                    self.raw.endswith(sfx) or self.lemma.endswith(sfx)
+                    for sfx in ("കൊണ്ടിരിക്കുകയാണ്", "ക്കുകയാണ്", "ുകയാണ്")
+                )
+            )
+        )
 
     def verb_class(self) -> str:
         if self.already_normalized:
@@ -158,8 +183,10 @@ class VerbAnalysis:
 
     @property
     def rp_tag_positive(self):
-        """Tense → RP tag for positive (non-negated) verbs."""
-        if self.tense == TAG_PAST:
+        """Tense / Aspect → RP tag for positive (non-negated) verbs."""
+        if self.is_progressive:
+            return RP_PRESENT
+        if self.tense == TAG_PAST or self.is_perfect:
             return RP_PAST
         if self.tense == TAG_PRESENT:
             return RP_PRESENT
@@ -171,7 +198,7 @@ class VerbAnalysis:
     @property
     def rp_tag_negative(self):
         """Tense → RP-neg tag for negated verbs."""
-        if self.tense == TAG_PAST:
+        if self.tense == TAG_PAST or self.is_perfect:
             return RP_PAST_NEG
         # present/future/tenseless negative → present-neg (-ാത്തത്)
         return RP_PRESENT_NEG
@@ -185,12 +212,32 @@ def _targets_tense_positive(raw: str, va: VerbAnalysis) -> list:
     rp = va.rp_tag_positive
     if rp is None:
         return []
+
+    if va.is_progressive:
+        targets = []
+        if "കൊണ്ടിരിക്കുക" in raw:
+            if "ആണ്<aff>" in raw:
+                idx = raw.find("ആണ്<aff>")
+                targets.append(raw[:idx] + f"<{RP_PRESENT}>{TAG_NOMINAL}")
+            last_v_pos = raw.rfind("<v>")
+            prefix = raw[:last_v_pos + len("<v>")]
+            targets.append(prefix + f"<{RP_PRESENT}>{TAG_NOMINAL}")
+
+        first_v_pos = raw.find("<v>")
+        if first_v_pos != -1:
+            base_prefix = raw[:first_v_pos + len("<v>")]
+            targets.append(base_prefix + f"<{RP_PRESENT}>{TAG_NOMINAL}")
+        return targets
+
     last_v_pos     = raw.rfind("<v>")
     prefix         = raw[:last_v_pos + len("<v>")]
     voice_clause   = f"<{va.voice}>" if va.voice else ""
     tense_clause   = f"<{va.tense}>" if va.tense else ""
     primary        = prefix + voice_clause + f"<{rp}>" + TAG_NOMINAL
     with_tense     = prefix + tense_clause + voice_clause + f"<{rp}>" + TAG_NOMINAL
+    if va.is_perfect:
+        with_perfect = prefix + f"<{TAG_SIMPLE_PERFECT}><{rp}>" + TAG_NOMINAL
+        return [with_perfect, primary, with_tense]
     return [primary, with_tense]
 
 
@@ -283,6 +330,30 @@ def _is_valid_nominalized_verb(form: str, analyser: Analyser) -> tuple:
 # Main normalizer
 # ---------------------------------------------------------------------------
 
+PUNCTUATION_CHARS = set(".,!?;:\"'“”‘’()[]{}—–-«»/\\")
+
+
+def split_punctuation(token: str) -> tuple:
+    """
+    Splits a token into (leading_punct, core_linguistic_word, trailing_punct).
+    Treats structural punctuation (commas, colons, quotes, etc.) separately
+    from the linguistic stem so that morphology/normalization operates on the
+    stem and restores punctuation outside the normalized form.
+    """
+    if not token or not isinstance(token, str):
+        return "", "", ""
+    start = 0
+    while start < len(token) and token[start] in PUNCTUATION_CHARS:
+        start += 1
+    end = len(token)
+    while end > start and token[end - 1] in PUNCTUATION_CHARS:
+        end -= 1
+    leading = token[:start]
+    core = token[start:end]
+    trailing = token[end:]
+    return leading, core, trailing
+
+
 class VerbNormalizer:
     """Standalone Malayalam verb normalizer."""
 
@@ -291,6 +362,33 @@ class VerbNormalizer:
         self._generator = Generator()
 
     def normalize(self, verb: str) -> dict:
+        """
+        Normalize a finite verb to its nominalized (ത്-ending) form,
+        preserving any leading/trailing structural punctuation.
+        """
+        leading, core, trailing = split_punctuation(verb)
+        if not core:
+            return {
+                "original": verb,
+                "lemma": "",
+                "analysis": "",
+                "verb_class": "",
+                "rp_tag": "",
+                "gen_target": "",
+                "derived_stem": "",
+                "normalized": verb,
+                "normalized_analysis": "",
+                "status": "UNRESOLVED",
+                "failure_reason": "Empty or punctuation-only verb token.",
+            }
+
+        result = self._normalize_core(core)
+        result["original"] = verb
+        if result["normalized"]:
+            result["normalized"] = f"{leading}{result['normalized']}{trailing}"
+        return result
+
+    def _normalize_core(self, verb: str) -> dict:
         result = {
             "original"            : verb,
             "lemma"               : "",
@@ -304,6 +402,31 @@ class VerbNormalizer:
             "status"              : "UNRESOLVED",
             "failure_reason"      : "",
         }
+
+        # High-priority surface rules for existential/stative compound verbs
+        if verb.endswith("ഉണ്ട്"):
+            norm_form = verb[:-len("ഉണ്ട്")] + "ഉള്ളത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
+            return result
+
+        if verb.endswith("മുണ്ട്"):
+            norm_form = verb[:-len("മുണ്ട്")] + "മുള്ളത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
+            return result
+
+        if verb.endswith("ഉണ്ടായിരുന്നു"):
+            norm_form = verb[:-len("ഉണ്ടായിരുന്നു")] + "ഉണ്ടായിരുന്നത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+            return result
 
         # Step 1: Analyse
         raw_analyses = self._analyser.analyse(verb)
@@ -372,6 +495,23 @@ class VerbNormalizer:
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_OBLIGATIVE
                 result["normalized_analysis"] = f"{norm_form}<v><cvb-adv-part-simul><n><deriv>"
+                return result
+
+            # Existential/Suppletive: -ഉണ്ട് / -മുണ്ട് → -ഉള്ളത് / -മുള്ളത്
+            if verb.endswith("ഉണ്ട്"):
+                norm_form = verb[:-len("ഉണ്ട്")] + "ഉള്ളത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
+                return result
+
+            if verb.endswith("മുണ്ട്"):
+                norm_form = verb[:-len("മുണ്ട്")] + "മുള്ളത്"
+                result["status"] = "VALID"
+                result["normalized"] = norm_form
+                result["verb_class"] = CLASS_TENSE_POS
+                result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
                 return result
 
             # Permissive: -ാം → -ാവുന്നത്
@@ -498,10 +638,14 @@ class VerbNormalizer:
 
         # 2. Non-verb
         if vc == CLASS_NON_VERB:
-            result["failure_reason"] = (
-                f"Analysis '{best_raw}' contains no <v> tag; input may not be a verb."
-            )
-            return result
+            if any(verb.endswith(sfx) for sfx in ("കൊണ്ടിരിക്കുകയാണ്", "ക്കുകയാണ്", "ുകയാണ", "കയാണ്", "ാറുണ്ട്", "ാറില്ല", "ണം", "ാം")):
+                vc = CLASS_TENSE_POS
+                targets = []
+            else:
+                result["failure_reason"] = (
+                    f"Analysis '{best_raw}' contains no <v> tag; input may not be a verb."
+                )
+                return result
 
         # 3. Permissive mood (-ാം → -ാവുന്നത്)
         if vc == CLASS_PERMISSIVE:
@@ -630,12 +774,6 @@ class VerbNormalizer:
 
         result["rp_tag"] = rp_display
 
-        if not targets:
-            result["failure_reason"] = (
-                f"Could not build generation target for '{best_raw}'."
-            )
-            return result
-
         # Step 6: Generate
         generated_form = None
         used_target    = None
@@ -652,10 +790,28 @@ class VerbNormalizer:
             used_target    = target
             break
 
-        result["gen_target"] = used_target or targets[0]
+        result["gen_target"] = used_target or (targets[0] if targets else "")
 
         if generated_form is None:
-            if verb.endswith("ുന്നു"):
+            if verb.endswith("ിക്കൊണ്ടിരിക്കുകയാണ്"):
+                generated_form = verb[:-len("ിക്കൊണ്ടിരിക്കുകയാണ്")] + "ിക്കൊണ്ടിരിക്കുന്നത്"
+            elif verb.endswith("ച്ചുകൊണ്ടിരിക്കുകയാണ്"):
+                generated_form = verb[:-len("ച്ചുകൊണ്ടിരിക്കുകയാണ്")] + "ച്ചുകൊണ്ടിരിക്കുന്നത്"
+            elif verb.endswith("ഞ്ഞുകൊണ്ടിരിക്കുകയാണ്"):
+                generated_form = verb[:-len("ഞ്ഞുകൊണ്ടിരിക്കുകയാണ്")] + "ഞ്ഞുകൊണ്ടിരിക്കുന്നത്"
+            elif verb.endswith("കൊണ്ടിരിക്കുകയാണ്"):
+                generated_form = verb[:-len("കൊണ്ടിരിക്കുകയാണ്")] + "കൊണ്ടിരിക്കുന്നത്"
+            elif verb.endswith("ിക്കുകയാണ്"):
+                generated_form = verb[:-len("ിക്കുകയാണ്")] + "ിക്കുന്നത്"
+            elif verb.endswith("ക്കുകയാണ്"):
+                generated_form = verb[:-len("ക്കുകയാണ്")] + "ക്കുന്നത്"
+            elif verb.endswith("ികയാണ്"):
+                generated_form = verb[:-len("ികയാണ്")] + "ുന്നത്"
+            elif verb.endswith("ുകയാണ്") and len(verb) > 4:
+                generated_form = verb[:-len("ുകയാണ്")] + "ുന്നത്"
+            elif any(verb.endswith(sfx) for sfx in ("ിരുന്നു", "യിരുന്നു", "ന്നിരുന്നു", "ച്ചിരുന്നു", "ഞ്ഞിരുന്നു", "തിരുന്നു")):
+                generated_form = verb[:-1] + "ത്"
+            elif verb.endswith("ുന്നു"):
                 generated_form = verb[:-len("ുന്നു")] + "ുന്നത്"
             elif verb.endswith("ിച്ചു"):
                 generated_form = verb[:-len("ിച്ചു")] + "ിച്ചത്"
