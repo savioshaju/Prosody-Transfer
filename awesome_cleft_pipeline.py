@@ -32,7 +32,11 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     except Exception:
         pass
 
-# Add awesome-align path
+# Add awesome-align path and venv site-packages
+VENV_SITE_PACKAGES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "Lib", "site-packages")
+if os.path.exists(VENV_SITE_PACKAGES) and VENV_SITE_PACKAGES not in sys.path:
+    sys.path.append(VENV_SITE_PACKAGES)
+
 AWESOME_ALIGN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "awesome-align")
 if AWESOME_ALIGN_DIR not in sys.path:
     sys.path.append(AWESOME_ALIGN_DIR)
@@ -40,6 +44,8 @@ if AWESOME_ALIGN_DIR not in sys.path:
 import torch
 from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_punctuation
 from bhashik_focus_reorderer import BhashikFocusReorderer
+from cleft_reorderer import CleftReorderer
+from ssf_pipeline.bhashaverse_translator import BhashaverseTranslator
 
 
 class AwesomeAlignerWrapper:
@@ -158,14 +164,20 @@ class AwesomeAlignerWrapper:
         clean_src = [strip_punctuation(w) if strip_punctuation(w) else w for w in sent_src]
         clean_tgt = [strip_punctuation(w) if strip_punctuation(w) else w for w in sent_tgt]
 
-        # Pass 1: Lexical alignment (punctuation-normalized)
-        lexical_alignments = self._run_bert_align(clean_src, clean_tgt)
+        # Pass 1: Bidirectional Lexical alignment (punctuation-normalized)
+        lexical_forward = self._run_bert_align(clean_src, clean_tgt)
+        lexical_reverse = self._run_bert_align(clean_tgt, clean_src)
+        lexical_reverse_swapped = set((s_i, t_j) for (t_j, s_i) in lexical_reverse)
 
-        # Pass 2: Raw alignment (with punctuation)
-        raw_alignments = self._run_bert_align(sent_src, sent_tgt)
+        # Pass 2: Bidirectional Raw alignment (with punctuation)
+        raw_forward = self._run_bert_align(sent_src, sent_tgt)
+        raw_reverse = self._run_bert_align(sent_tgt, sent_src)
+        raw_reverse_swapped = set((s_i, t_j) for (t_j, s_i) in raw_reverse)
 
-        lexical_set = set(lexical_alignments)
-        raw_set = set(raw_alignments)
+        lexical_set = set(lexical_forward) | lexical_reverse_swapped
+        raw_set = set(raw_forward) | raw_reverse_swapped
+        bidirectional_lexical = set(lexical_forward) & lexical_reverse_swapped
+        bidirectional_raw = set(raw_forward) & raw_reverse_swapped
 
         # Pass 3: Named Entity / Proper Noun anchoring
         entity_anchors = {}
@@ -203,29 +215,39 @@ class AwesomeAlignerWrapper:
             is_pure_punct = (not c_src) and (not c_tgt)
             is_lexical = (s_i, t_j) in lexical_set
             is_raw = (s_i, t_j) in raw_set
+            is_bidirectional = (s_i, t_j) in bidirectional_lexical or (s_i, t_j) in bidirectional_raw
 
-            if is_lexical:
-                # High-confidence lexical/subword alignment
+            if is_lexical or is_raw:
+                if is_pure_punct:
+                    confidence = "STRUCTURAL"
+                elif is_bidirectional:
+                    confidence = "HIGH_BIDIRECTIONAL"
+                elif is_lexical:
+                    confidence = "HIGH"
+                else:
+                    confidence = "RAW_ALIGN"
+
                 reconciled_pairs.append({
                     "src_index": s_i,
                     "src_word": src_w,
                     "tgt_index": t_j,
                     "tgt_word": tgt_w,
-                    "is_lexical": True,
-                    "is_punctuation_only": False,
-                    "confidence": "HIGH"
+                    "is_lexical": not is_pure_punct,
+                    "is_bidirectional": is_bidirectional,
+                    "is_punctuation_only": is_pure_punct,
+                    "confidence": confidence
                 })
-            elif is_pure_punct and is_raw:
-                # Standalone structural punctuation match (e.g. '.' <---> '.')
-                reconciled_pairs.append({
-                    "src_index": s_i,
-                    "src_word": src_w,
-                    "tgt_index": t_j,
-                    "tgt_word": tgt_w,
-                    "is_lexical": False,
-                    "is_punctuation_only": True,
-                    "confidence": "STRUCTURAL"
-                })
+
+        # Prune unidirectional noise when a high-confidence bidirectional alignment exists for source token s_i
+        src_has_bidir = set(item["src_index"] for item in reconciled_pairs if item["is_bidirectional"] and not item["is_punctuation_only"])
+        if src_has_bidir:
+            pruned_pairs = []
+            for item in reconciled_pairs:
+                s_idx = item["src_index"]
+                if s_idx in src_has_bidir and not item["is_bidirectional"] and not item["is_punctuation_only"]:
+                    continue
+                pruned_pairs.append(item)
+            reconciled_pairs = pruned_pairs
 
         # Inject validated entity anchors
         for s_i, t_j in entity_anchors.items():
@@ -334,6 +356,7 @@ class AwesomeCleftPipeline:
         
         self.ssf_pipeline = CleftPipeline()
         self.neural_reorderer = None
+        self.translator = None
         self.model_dir = model_dir
         self.device = device
 
@@ -585,6 +608,7 @@ class AwesomeCleftPipeline:
                     if matches > 0 and density > best_density:
                         best_density = density
                         best_window = (i, j)
+            best_window = (i, j)
             focus_src_start, focus_src_end = best_window
 
         # ONLY source indices strictly within [focus_src_start..focus_src_end] are valid!
@@ -596,7 +620,7 @@ class AwesomeCleftPipeline:
             if prev_en_word in {"from", "by", "in", "on", "at", "to", "for", "with", "of", "about", "through", "after", "before", "into", "onto", "upon"}:
                 matching_src_indices.add(focus_src_start - 1)
 
-        # 3. Collect all candidate target alignments
+        # 3. Collect all candidate target alignments and filter using Bidirectional Consensus
         candidate_alignments: List[Dict[str, Any]] = []
         seen_pairs: set = set()
         for item in src_to_tgt:
@@ -611,7 +635,24 @@ class AwesomeCleftPipeline:
                         "src_word": item["src_word"],
                         "tgt_index": t_j,
                         "tgt_word": tgt_tokens[t_j],
+                        "is_bidirectional": item.get("is_bidirectional", False),
                     })
+
+        # Reconcile bidirectional consensus: if bidirectional pairs exist for the focus, discard unverified single-pass links
+        bidirectional_cands = [c for c in candidate_alignments if c.get("is_bidirectional", False)]
+        if bidirectional_cands:
+            candidate_alignments = bidirectional_cands
+        else:
+            # If no bidirectional consensus links exist for focus, discard noisy single-pass links that conflict with reverse alignment
+            candidate_alignments = [
+                c for c in candidate_alignments
+                if not any(
+                    rev_item.get("tgt_index") == c["tgt_index"]
+                    and rev_item.get("is_lexical", True)
+                    and rev_item.get("src_index") not in matching_src_indices
+                    for rev_item in tgt_to_src
+                )
+            ]
 
         if not candidate_alignments:
             if matching_src_indices and len(src_tokens) > 0 and len(tgt_tokens) > 0:
@@ -623,6 +664,7 @@ class AwesomeCleftPipeline:
                     "src_word": src_tokens[sorted_src_indices[0]],
                     "tgt_index": approx_tgt_idx,
                     "tgt_word": tgt_tokens[approx_tgt_idx],
+                    "is_fallback": True,
                 })
             else:
                 fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
@@ -635,11 +677,15 @@ class AwesomeCleftPipeline:
         )
         filtered_cand_indices = set()
         for t_j in cand_indices_set:
+            has_direct_focus_align = any(
+                item.get("tgt_index") == t_j and item.get("is_lexical", True) and item.get("src_index") in matching_src_indices
+                for item in src_to_tgt
+            )
             aligns_outside = any(
                 item.get("tgt_index") == t_j and item.get("is_lexical", True) and item.get("src_index") not in matching_src_indices
                 for item in tgt_to_src
             )
-            if aligns_outside and self._is_verbal_token(tgt_tokens[t_j]):
+            if aligns_outside and not has_direct_focus_align and self._is_verbal_token(tgt_tokens[t_j]):
                 continue
             filtered_cand_indices.add(t_j)
         cand_indices_set = filtered_cand_indices
@@ -652,7 +698,12 @@ class AwesomeCleftPipeline:
                 i < matrix_verb_idx and self._is_verbal_token(tgt_tokens[i])
                 for i in range(len(tgt_tokens))
             )
-            if not verb_aligned_to_focus and not is_complement_verb and not earlier_matrix_verb:
+            has_non_verbal_cand = any(idx != matrix_verb_idx and not self._is_verbal_token(tgt_tokens[idx]) for idx in cand_indices_set)
+            
+            if has_non_verbal_cand:
+                # Prioritize non-verbal NP focus constituent over matrix verb swallowing
+                cand_indices_set.discard(matrix_verb_idx)
+            elif not verb_aligned_to_focus and not is_complement_verb and not earlier_matrix_verb:
                 cand_indices_set.discard(matrix_verb_idx)
 
         # Filter candidate indices separated by a main matrix verb if the primary cluster is after it
@@ -675,6 +726,20 @@ class AwesomeCleftPipeline:
                 for b_idx in before_mv_cand:
                     cand_indices_set.discard(b_idx)
 
+        # Shift candidate anchor leftward if candidate is immediately preceded by an adverbial postposition (e.g. ആനുപാതികമായി / പ്രകാരം / അനുസരിച്ച്)
+        shifted_cand_indices = set()
+        for idx in cand_indices_set:
+            if idx > 0:
+                prev_clean = strip_punctuation(tgt_tokens[idx - 1])
+                is_adv_postp = any(prev_clean.endswith(sfx) for sfx in ("മായി", "ായി", "കൊണ്ട്", "പ്രകാരം", "അനുസരിച്ച്", "പകരമായി")) and not any(prev_clean.endswith(sfx) for sfx in ("യുമായി", "ഇയുമായി", "നുമായി", "വോടുമായി", "യോടുമായി"))
+                if is_adv_postp:
+                    shifted_cand_indices.add(idx - 1)
+                else:
+                    shifted_cand_indices.add(idx)
+            else:
+                shifted_cand_indices.add(idx)
+        cand_indices_set = shifted_cand_indices
+
         cand_indices = sorted(cand_indices_set)
         if not cand_indices:
             if matching_src_indices and len(src_tokens) > 0 and len(tgt_tokens) > 0:
@@ -696,14 +761,16 @@ class AwesomeCleftPipeline:
                 cur = [idx]
         clusters.append(cur)
 
-        # If a copula 'ആണ്'-bearing token exists anywhere in the sentence, it marks the right boundary of the focus
+        # If a copula 'ആണ്'-bearing token exists within aligned focus candidates, use it as anchor
         aanu_cand_idx = None
-        for idx, tok in enumerate(tgt_tokens):
+        for idx in cand_indices:
+            tok = strip_punctuation(tgt_tokens[idx])
             if tok.endswith("ആണ്") or tok.endswith("ാണ്"):
-                aanu_cand_idx = idx
-                break
+                if any(c["tgt_index"] == idx and c["src_index"] in matching_src_indices for c in candidate_alignments):
+                    aanu_cand_idx = idx
+                    break
 
-        # 6. Head anchor — copula-bearing token if present, else candidate with highest focus alignment coverage & positional proximity
+        # 6. Head anchor — copula-bearing token if aligned, else candidate with highest focus alignment coverage & positional proximity
         if aanu_cand_idx is not None:
             head_anchor = aanu_cand_idx
         else:
@@ -792,6 +859,9 @@ class AwesomeCleftPipeline:
             # (e) gap tokens must not have lexical alignment with English tokens outside focus
             has_outside_alignment = False
             for g in range(gap_start, gap_end):
+                gap_tok_clean = strip_punctuation(tgt_tokens[g]).strip()
+                if gap_tok_clean in ("എന്ന", "എന്നുള്ള", "ഒരു", "എ", "ദ", "ദി", "ദ്"):
+                    continue
                 for item in tgt_to_src:
                     if item.get("tgt_index") == g and item.get("is_lexical", True):
                         if item.get("src_index") not in matching_src_indices:
@@ -806,7 +876,8 @@ class AwesomeCleftPipeline:
             merged_start = left_cl[0]
 
         if postp_boundary_idx is not None and merged_start <= postp_boundary_idx:
-            merged_start = postp_boundary_idx + 1
+            if postp_boundary_idx + 1 <= merged_end:
+                merged_start = postp_boundary_idx + 1
 
         # 7a. Disjunctive series extension for multi-clause focus
         if has_internal_commas:
@@ -833,11 +904,11 @@ class AwesomeCleftPipeline:
                 if "only" in english_focus.lower() or "just" in english_focus.lower() or "merely" in english_focus.lower():
                     merged_end += 1
 
-        # 7d. Rightward verbal participle extension
+        # 7d. Rightward verbal participle & modal verb extension (e.g. വിൽക്കാം എന്ന് / തുകൊണ്ട് / ക്കുന്നത്)
         if merged_end + 1 < len(tgt_tokens):
             next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
             if matrix_verb_idx is None or (merged_end + 1) != matrix_verb_idx:
-                if any(next_clean.endswith(sfx) for sfx in ("തുകൊണ്ട്", "ക്കുന്നത്", "ക്കുന്നതുകൊണ്ട്", "ന്നത്", "ത്തത്", " ചെയ്തത്", " ചെയ്യുന്നത്")):
+                if any(next_clean.endswith(sfx) for sfx in ("തുകൊണ്ട്", "ക്കുന്നത്", "ക്കുന്നതുകൊണ്ട്", "ന്നത്", "ത്തത്", " ചെയ്തത്", " ചെയ്യുന്നത്", "ാം", "പറ്റും", "സാധിക്കും", "കഴിയും")):
                     merged_end += 1
 
         # 7e. Expand leftward to complement clause boundary (after main matrix verb) if applicable
@@ -879,25 +950,33 @@ class AwesomeCleftPipeline:
                     merged_end += 1
 
         # 7i. Complement Clause / Dative Postposition Leftward Expansion (e.g. എന്നതിന് ആനുപാതികമായി / എന്ന നിബന്ധനയിൽ)
-        start_check_idx = merged_start if strip_punctuation(tgt_tokens[merged_start]) in ("എന്ന", "എന്നുള്ള", "എന്നതിന്", "എന്നതിനോട്", "എന്നതോടെ", "എന്നതുപോലെ", "എന്നതിനെ", "എന്നതിൽ") else (merged_start - 1)
-        if start_check_idx >= 0:
-            check_tok_clean = strip_punctuation(tgt_tokens[start_check_idx])
-            if check_tok_clean in ("എന്ന", "എന്നുള്ള", "എന്നതിന്", "എന്നതിനോട്", "എന്നതോടെ", "എന്നതുപോലെ", "എന്നതിനെ", "എന്നതിൽ"):
-                curr_i = start_check_idx
-                while curr_i - 1 >= 0:
-                    cand_tok = strip_punctuation(tgt_tokens[curr_i - 1])
-                    if self._is_verbal_token(cand_tok):
-                        if not any(cand_tok.endswith(sfx) for sfx in ("ുക", "ക്കുക", "ഇക്കൽ", "ക്കൽ", "ഉള്ള", "ുള്ള", "ുന്ന", "ാത്ത", "പ്പെട്ട", "ായ", "ിയ", "ച്ച", "ത്ത", "ന്ന", "ഉക")):
+        # Note: Zero direct alignment evidence must not trigger unrestricted constituent expansion over neighboring clauses
+        has_direct_focus_evidence = any(
+            c.get("src_index") in matching_src_indices and c.get("is_lexical", True) and not c.get("is_fallback", False)
+            for c in candidate_alignments
+        )
+        if has_direct_focus_evidence:
+            start_check_idx = merged_start if strip_punctuation(tgt_tokens[merged_start]) in ("എന്ന", "എന്നുള്ള", "എന്നതിന്", "എന്നതിനോട്", "എന്നതോടെ", "എന്നതുപോലെ", "എന്നതിനെ", "എന്നതിൽ") else (merged_start - 1)
+            if start_check_idx >= 0:
+                check_tok_clean = strip_punctuation(tgt_tokens[start_check_idx])
+                if check_tok_clean in ("എന്ന", "എന്നുള്ള", "എന്നതിന്", "എന്നതിനോട്", "എന്നതോടെ", "എന്നതുപോലെ", "എന്നതിനെ", "എന്നതിൽ"):
+                    curr_i = start_check_idx
+                    while curr_i - 1 >= 0:
+                        cand_tok = strip_punctuation(tgt_tokens[curr_i - 1])
+                        if self._is_verbal_token(cand_tok):
+                            if not any(cand_tok.endswith(sfx) for sfx in ("ുക", "ക്കുക", "ഇക്കൽ", "ക്കൽ", "ഉള്ള", "ുള്ള", "ുന്ന", "ാത്ത", "പ്പെട്ട", "ായ", "ിയ", "ച്ച", "ത്ത", "ന്ന", "ഉക")):
+                                break
+                        if cand_tok.endswith(",") or cand_tok.endswith("."):
                             break
-                    if cand_tok.endswith(",") or cand_tok.endswith("."):
-                        break
-                    curr_i -= 1
-                if curr_i < merged_start:
-                    merged_start = curr_i
-            next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
-            conjoined_suffixes = ("ും", "യും", "വും", "തും", "കയും", "ഉം", "ം")
-            if any(curr_clean.endswith(sfx) for sfx in conjoined_suffixes) and any(next_clean.endswith(sfx) for sfx in conjoined_suffixes):
-                merged_end += 1
+                        curr_i -= 1
+                    if curr_i < merged_start:
+                        merged_start = curr_i
+            if merged_end + 1 < len(tgt_tokens):
+                next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
+                curr_clean = strip_punctuation(tgt_tokens[merged_end])
+                conjoined_suffixes = ("ും", "യും", "വും", "തും", "കയും", "ഉം", "ം")
+                if any(curr_clean.endswith(sfx) for sfx in conjoined_suffixes) and any(next_clean.endswith(sfx) for sfx in conjoined_suffixes):
+                    merged_end += 1
 
         # 7g. Participial & Postpositional Appositive Extension (e.g. എന്ന ചിത്രത്തോടു കൂടി / എന്ന പേരിൽ)
         if merged_end + 1 < len(tgt_tokens):
@@ -925,7 +1004,19 @@ class AwesomeCleftPipeline:
             if any(curr_clean.endswith(sfx) for sfx in ("തിന്", "തിനോട്", "തോടു", "തോട്", "ന്", "ിന്")):
                 if any(next_clean.endswith(sfx) for sfx in ("മായി", "ായി", "ഇച്ച്", "ഉമായി", "മായിട്ട്")):
                     merged_end += 1
+
+        # 7k. Trailing NP-Modifier Rightward Head Extension (e.g. വിവിധ -> അലങ്കാരമുദ്രകളില്നിന്ന്)
+        if merged_end + 1 < len(tgt_tokens):
+            curr_clean = strip_punctuation(tgt_tokens[merged_end])
+            if self._is_np_modifier(curr_clean) and not any(curr_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്")) and matrix_verb_idx != (merged_end + 1):
+                next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
+                if next_clean and not self._is_verbal_token(tgt_tokens[merged_end + 1]):
+                    merged_end += 1
+        if merged_start > merged_end:
+            merged_start = merged_end
         focus_span_indices = list(range(merged_start, merged_end + 1))
+        if not focus_span_indices:
+            focus_span_indices = [head_anchor] if 'head_anchor' in locals() else [0]
         constituent_tokens = [
             strip_punctuation(tgt_tokens[i]) for i in focus_span_indices
         ]
@@ -1089,6 +1180,12 @@ class AwesomeCleftPipeline:
                 malayalam_focus = ff_ml_matches[0].strip()
             clean_ml_sent = re.sub(r"</?FF>", "", malayalam_sentence).strip()
 
+        # Step 0b: Automated Neural Machine Translation (Bhashaverse) if Malayalam input is omitted
+        if not clean_ml_sent:
+            if self.translator is None:
+                self.translator = BhashaverseTranslator(device=str(self.device) if self.device else None)
+            clean_ml_sent = self.translator.translate(clean_en_sent)
+
         # Step 1: Pre-Cleft Alignment (English -> Malayalam)
         pre_alignment = self.aligner.align(clean_en_sent, clean_ml_sent)
 
@@ -1148,6 +1245,7 @@ class AwesomeCleftPipeline:
             cleft_res = self.ssf_pipeline.process(tagged_ml_sent)
             cleft_dict = cleft_res.to_dict()
             emphasized_ml_sentence = cleft_res.cleft_sentence or clean_ml_sent
+            emphasized_ml_sentence = re.sub(r"</?PE>", "", emphasized_ml_sentence).strip()
 
         # Step 3: Post-Cleft Dual Alignment (Awesome-Aligner)
         # 3a. Malayalam -> English alignment
@@ -1191,7 +1289,7 @@ class AwesomeCleftPipeline:
                     for k in range(best_window[0], best_window[1]):
                         en_prosody_labels[k] = 1
 
-        return {
+        result = {
             "english_sentence": clean_en_sent,
             "original_malayalam_sentence": clean_ml_sent,
             "english_focus": english_focus,
@@ -1206,6 +1304,12 @@ class AwesomeCleftPipeline:
             "post_cleft_ml_to_en_alignment": post_align_ml_to_en,
             "post_cleft_en_to_ml_alignment": post_align_en_to_ml,
         }
+
+        # Step 5: Clause-Aware Cleft Positional Reordering
+        reorderer = CleftReorderer()
+        result["cleft_reorderings"] = reorderer.reorder(result)
+
+        return result
 
 
 def generate_pipeline_report(res: Dict[str, Any]) -> str:
@@ -1277,6 +1381,27 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     for item in res["post_cleft_en_to_ml_alignment"].get("src_to_tgt_alignments", []):
         lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
 
+    # --- Cleft Positional Reorderings ---
+    reorderings = res.get("cleft_reorderings", {})
+    if reorderings and reorderings.get("preverbal_focus"):
+        lines.append("\n" + "-" * 80)
+        lines.append("--- Cleft Positional Reorderings ---")
+        lines.append("-" * 80)
+        lines.append(f"  * Preverbal (Contrastive)      : {reorderings['preverbal_focus']}")
+        lines.append(f"  * Postverbal (Information)      : {reorderings['postverbal_focus']}")
+        lines.append(f"  * Clause-Initial (Strong)       : {reorderings['clause_initial_focus']}")
+        comp = reorderings.get("components", {})
+        cc = comp.get("cleft_clause", {})
+        if cc:
+            lines.append(f"  * Components:")
+            if comp.get("pre_clauses"):
+                lines.append(f"      Pre-clauses      : {comp['pre_clauses']}")
+            lines.append(f"      Background       : {cc.get('background', [])}")
+            lines.append(f"      Focus+ആണ്         : {cc.get('focus_copula', [])}")
+            lines.append(f"      Nominalized Verb : {cc.get('nominalized_verb', [])}")
+            if comp.get("post_clauses"):
+                lines.append(f"      Post-clauses     : {comp['post_clauses']}")
+
     lines.append("\n" + "=" * 80 + "\n")
     return "\n".join(lines)
 
@@ -1299,6 +1424,11 @@ def print_pipeline_report(res: Dict[str, Any], output_path: str = "output.txt"):
     print(f"• English Focus               : {res['english_focus'] or '—'}")
     print(f"• Selected Malayalam Focus   : {res['focused_malayalam_constituent']}")
     print(f"• Emphasized Malayalam Output: {res['emphasized_malayalam_sentence']}")
+    reorderings = res.get("cleft_reorderings", {})
+    if reorderings and reorderings.get("preverbal_focus"):
+        print(f"• Preverbal  (Contrastive)   : {reorderings['preverbal_focus']}")
+        print(f"• Postverbal (Information)   : {reorderings['postverbal_focus']}")
+        print(f"• Clause-Initial (Strong)    : {reorderings['clause_initial_focus']}")
     print(f"• Focus Candidates Evaluated : {len(res.get('focus_candidates', []))}")
     print(f"• Full report & diagnostics   : {abs_out_path}")
     print("=" * 68)
@@ -1356,7 +1486,7 @@ def main():
         en_focus = " ".join(unknown).strip().lstrip("=").strip().strip("'\"").strip()
 
     en_sent = en_sent or "Father bought a book in the garden yesterday."
-    ml_sent = ml_sent or "അച്ഛൻ ഇന്നലെ തോട്ടത്തിൽ വെച്ച് പുസ്തകം വാങ്ങി."
+    ml_sent = ml_sent or ""
     en_focus = en_focus or "Father"
 
     pipeline = AwesomeCleftPipeline()

@@ -114,8 +114,10 @@ def _extract_head_and_appositives(focus_phrase: str) -> tuple:
         core_words = core_part.split()
         if len(core_words) > 1:
             return " ".join(core_words[:-1]), core_words[-1], appositive
-        else:
+        elif len(core_words) == 1:
             return "", core_words[0], appositive
+        else:
+            return "", "", appositive
 
     # 2. Standard multi-word constituent
     words = cleaned.split()
@@ -185,7 +187,7 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
     )
     if not has_lexical_vm:
         # Check if sentence tokens contain finite or stative verb suffixes (-ുന്നു, -ിച്ചു, -തു, -ി, -ണം, -ും, -ാം, ഉണ്ട്, മുണ്ട്, ആണ്, ഇല്ല)
-        verb_suffixes = ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "മുണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും")
+        verb_suffixes = ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "മുണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")
         has_lexical_vm = any(
             any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes)
             for w in (focused_word.split())
@@ -193,9 +195,6 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
             any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes)
             for w in (sentence_pos_tags or [])
         )
-
-    if not has_lexical_vm:
-        return "PE"
 
     clean_fw = strip_punctuation(focused_word).strip()
     is_supported_constituent = (
@@ -205,10 +204,10 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
         or focused_pos_upper in ("RB", "ADV")    # Adverbs / Temporal / Manner
         or focused_pos_upper.startswith("V_")    # VP infinitive / action focus
         or _has_nominal_head_in_qt(focused_word) # Compound ordinal/quantifier NPs (രണ്ടാംഭാഗം)
-        or any(clean_fw.endswith(sfx) for sfx in ("ിൽ", "ൽ", "ത്ത്", "നിന്ന്", "കൊണ്ട്", "ക്ക്", "ന്", "ന്റെ", "ുടെ", "യും", "ഉം", "ഓ", "യം", "ം", "ത്തിൽ"))
+        or any(clean_fw.endswith(sfx) for sfx in ("ിൽ", "ൽ", "ത്ത്", "നിന്ന്", "കൊണ്ട്", "ക്ക്", "ന്", "ന്റെ", "ുടെ", "യും", "ഉം", "ഓ", "യം", "ം", "ത്തിൽ", "എന്നോ", "മെന്നോ"))
     )
 
-    if is_supported_constituent and has_lexical_vm:
+    if is_supported_constituent:
         return "CLEFT"
 
     # 5. Default fallback
@@ -447,17 +446,16 @@ class CleftPipeline:
         route = check_cleft_eligibility(focus_word, focus_token.form_pos, sentence_words)
 
         if route == "PE":
-            pe_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)", r"<PE>\1</PE>", tagged_sentence)
             return CleftResult(
-                original_sentence=tagged_sentence,
+                original_sentence=clean_sentence,
                 clean_sentence=clean_sentence,
                 focus_word=focus_word,
                 focus_token=focus_token,
                 status="PE_ROUTED",
                 phase="ROUTING_SECTION_1",
                 route="PE",
-                pe_sentence=pe_sentence,
-                cleft_sentence=pe_sentence,
+                pe_sentence=clean_sentence,
+                cleft_sentence=clean_sentence,
             )
 
         # Morphological analysis of the focused word (for multi-word constituents, analyze the head word)
@@ -565,19 +563,22 @@ class CleftPipeline:
                 )
 
             if norm_status != "VALID" or not norm_res.get("normalized"):
-                return CleftResult(
-                    original_sentence=tagged_sentence,
-                    clean_sentence=clean_sentence,
-                    focus_word=focus_word,
-                    focus_token=focus_token,
-                    constituent_type=constituent_type,
-                    main_verb=main_verb,
-                    status="UNRESOLVED",
-                    phase="PHASE_2_NORMALIZATION",
-                    error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
-                )
-
-            normalized_verb = norm_res["normalized"]
+                if not self._is_verbal_token(main_verb):
+                    normalized_verb = main_verb
+                else:
+                    return CleftResult(
+                        original_sentence=tagged_sentence,
+                        clean_sentence=clean_sentence,
+                        focus_word=focus_word,
+                        focus_token=focus_token,
+                        constituent_type=constituent_type,
+                        main_verb=main_verb,
+                        status="UNRESOLVED",
+                        phase="PHASE_2_NORMALIZATION",
+                        error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
+                    )
+            else:
+                normalized_verb = norm_res["normalized"]
         else:
             normalized_verb = ""
 
@@ -629,7 +630,16 @@ class CleftPipeline:
             cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
 
         # 2. Substitute the copula-attached focus constituent
-        cleft_sentence = self._substitute(cleft_sentence, focus_word, copula_form)
+        # When focus constituent ends in a modal/clausal verb (e.g. വിൽക്കാം) and is followed by 'എന്ന്',
+        # the clausal complement transforms into 'എന്ന്' -> 'എന്നതിനെയാണ്'.
+        comp_pattern = focus_word + " എന്ന്"
+        focus_tokens_list = focus_word.strip().split()
+        last_tok = focus_tokens_list[-1] if focus_tokens_list else ""
+        if comp_pattern in cleft_sentence and any(last_tok.endswith(sfx) for sfx in ("ാം", "ഉണ്ട്", "വേണം", "കഴിയും", "പറ്റും", "സാധിക്കും")):
+            cleft_sentence = cleft_sentence.replace(comp_pattern, focus_word + " എന്നതിനെയാണ്", 1)
+            copula_form = focus_word + " എന്നതിനെയാണ്"
+        else:
+            cleft_sentence = self._substitute(cleft_sentence, focus_word, copula_form)
 
         # If copula_form already carries the cleft copula, strip any orphaned background detached 'ആണ്'
         if copula_form.endswith("ആണ്") or copula_form.endswith("ാണ്"):
@@ -664,11 +674,10 @@ class CleftPipeline:
         return ""
 
     def _is_indefinite_or_interrogative_pronoun(self, analysis, token=None) -> bool:
-        """
-        Determine from morphological/lexical features whether
-        the token is an interrogative or indefinite pronoun.
-        """
         if not analysis:
+            return False
+        word_text = getattr(analysis, "word", "") or (token.form if token else "")
+        if any(word_text.endswith(sfx) for sfx in ("മെന്നോ", "എന്നോ")):
             return False
         raw = getattr(analysis, "raw_analysis", "")
         lemma = getattr(analysis, "lemma", "")
@@ -957,18 +966,37 @@ class CleftPipeline:
         return False
 
     def _substitute(self, sentence: str, target: str, replacement: str) -> str:
-        if not target:
-            return sentence
         if target in sentence:
             return sentence.replace(target, replacement, 1)
         clean_target = strip_punctuation(target)
         if clean_target and clean_target in sentence:
             return sentence.replace(clean_target, replacement, 1)
+
+        # Multi-word substitution matching internal punctuation/commas (e.g. 'പാദമെന്നോ, ഏറ്റവും താഴത്തെ ഭാഗമെന്നോ, അടിത്തട്ട് എന്നോ')
+        words = [re.escape(strip_punctuation(w)) for w in (target or "").split() if strip_punctuation(w)]
+        if words:
+            pattern = r"\s*[\,\.\?\!\;\:\-]*\s*".join(words)
+            if re.search(pattern, sentence):
+                return re.sub(pattern, replacement, sentence, count=1)
+
         return sentence
 
     # ------------------------------------------------------------------
     # Copular predicate handling (Clause-level)
     # ------------------------------------------------------------------
+
+    def _is_verbal_token(self, word: str) -> bool:
+        clean = strip_punctuation(word).strip()
+        if not clean:
+            return False
+        try:
+            analyses = self._analysis_layer.analyser.analyse(clean)
+            for raw, _ in analyses:
+                if "<v>" in raw or "<verb>" in raw:
+                    return True
+        except Exception:
+            pass
+        return any(clean.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "മുണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്"))
 
     def _is_copular_predicate(self, word: str) -> bool:
         """

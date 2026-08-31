@@ -59,7 +59,22 @@ def _attach_aanu_surface_core(word: str) -> str:
         return word
 
     # ---------------------------------------------------------------
-    # 2. ആദേശം — Anusvāra Resolution: ം → മാണ്
+    # Disjunctive quote / clause nominalization: -എന്നോ, -മെന്നോ → -എന്നതിനെയാണ്
+    # ---------------------------------------------------------------
+    if word.endswith("എന്നോ"):
+        return word[:-len("എന്നോ")] + "എന്നതിനെയാണ്"
+    if word.endswith("മെന്നോ"):
+        return word[:-len("മെന്നോ")] + "മെന്നതിനെയാണ്"
+
+    # ---------------------------------------------------------------
+    # 3. Chillu Consonants (Vyañjana-Svara Sandhi)
+    #    Anusvāra: ം → മാണ്  (e.g. സത്യം → സത്യമാണ്, കാടുകൾ → കാടുകളാണ്)
+    # ---------------------------------------------------------------
+    if word.endswith("ുന്നു"):
+        return word[:-len("ുന്നു")] + "ുന്നതാണ്"
+
+    # ---------------------------------------------------------------
+    # 2b. ആദേശം — Anusvāra Resolution: ം → മാണ്
     # ---------------------------------------------------------------
     if word.endswith("ം"):
         return word[:-1] + "മാണ്"
@@ -391,6 +406,12 @@ class CopulaLayer:
         if core.endswith("മാത്രമേ"):
             res = core[:-len("മാത്രമേ")] + "മാത്രമേയുള്ളൂ"
             return f"{leading}{res}{trailing}", "YES", "focus-particle"
+
+        # 1d. Finite present tense verbs: -ുന്നു + ആണ് → -ുന്നതാണ്
+        #     (e.g. തുടരുന്നു → തുടരുന്നതാണ്, ചെയ്യുന്നു → ചെയ്യുന്നതാണ്)
+        if core.endswith("ുന്നു"):
+            res = core[:-len("ുന്നു")] + "ുന്നതാണ്"
+            return f"{leading}{res}{trailing}", "YES", "verb-nominalized"
 
         # 2. Case-preserving copula generation
         css = self.detect_css(core, selected_analysis) if selected_analysis else ""
