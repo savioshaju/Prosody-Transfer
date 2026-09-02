@@ -1,9 +1,8 @@
-
 """
 Bhashaverse Machine Translation Module for SSF Pipeline.
 
 Provides an offline-first GPU-accelerated wrapper around the LTRC IIIT-Hyderabad
-Bhashaverse multilingual translation model (mBART-based OneNMT v3b).
+Bhashaverse translation model (OneNMT v3b) for English-to-Malayalam.
 """
 
 import os
@@ -15,41 +14,17 @@ import torch
 
 logger = logging.getLogger(__name__)
 
-# Standard language code to FLORES-200 code mapping
+# FLORES-200 Language Codes
 LANGUAGE_MAPPING = {
-    "asm": "asm_Beng",
-    "ben": "ben_Beng",
-    "ban": "ben_Beng",
-    "brx": "brx_Deva",
-    "doi": "doi_Deva",
-    "gom": "gom_Deva",
-    "guj": "guj_Gujr",
-    "hin": "hin_Deva",
-    "kan": "kan_Knda",
-    "kas": "kas_Arab",
-    "mai": "mai_Deva",
-    "mal": "mal_Mlym",
-    "mar": "mar_Deva",
-    "mni": "mni_Beng",
-    "npi": "npi_Deva",
-    "ory": "ory_Orya",
-    "pan": "pan_Guru",
-    "san": "san_Deva",
-    "sat": "sat_Olck",
-    "snd": "snd_Arab",
-    "tam": "tam_Taml",
-    "tel": "tel_Telu",
-    "urd": "urd_Arab",
     "eng": "eng_Latn",
+    "mal": "mal_Mlym",
 }
 
 
 class BhashaverseTranslator:
     """
     Offline-first Neural Machine Translation using Bhashaverse (IIIT-H).
-
-    Translates between English and Indic languages (default: eng -> mal).
-    Prioritizes CUDA GPU acceleration and safetensors format.
+    Translates English to Malayalam using OneNMT v3b.
     """
 
     def __init__(
@@ -60,40 +35,17 @@ class BhashaverseTranslator:
         max_new_tokens: int = 256,
         lazy_load: bool = True,
     ):
-        # 1. Device selection — prioritize GPU first
+        # 1. Device selection — prioritize GPU
         if device:
             self.device = torch.device(device)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # 2. Determine model and weights directory
+        # 2. Local model assets and cached weights directory
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        # Look for model assets (SPM, fairseq_dict, config)
-        asset_candidates = [
-            os.path.join(repo_root, "test", "bhashaverse"),
-            os.path.join(repo_root, "models", "bhashaverse"),
-            r"D:\hf_cache\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3",
-            r"G:\My Drive\C\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3",
-        ]
-        self.asset_dir = None
-        for cand in ([model_dir] if model_dir else []) + asset_candidates:
-            if cand and os.path.exists(os.path.join(cand, "fairseq_dict.json")):
-                self.asset_dir = cand
-                break
-
-        # Look for weight file (safetensors or pt)
-        weight_candidates = [
-            r"D:\hf_cache\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3\model.safetensors",
-            r"G:\My Drive\C\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3\model.safetensors",
-            os.path.join(repo_root, "test", "bhashaverse", "fixed_state_dict.pt"),
-            os.path.join(repo_root, "test", "bhashaverse", "model.safetensors"),
-        ]
-        self.weight_path = None
-        for w_cand in weight_candidates:
-            if w_cand and os.path.exists(w_cand):
-                self.weight_path = w_cand
-                break
+        self.asset_dir = model_dir if (model_dir and os.path.exists(model_dir)) else os.path.join(repo_root, "test", "bhashaverse")
+        self.hf_snapshot_dir = r"D:\hf_cache\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3"
+        self.weight_path = os.path.join(self.hf_snapshot_dir, "model.safetensors")
 
         self.beam_size = beam_size
         self.max_new_tokens = max_new_tokens
@@ -116,28 +68,18 @@ class BhashaverseTranslator:
         if self._loaded:
             return
 
-        if not self.asset_dir or not os.path.exists(self.asset_dir):
-            raise FileNotFoundError("Bhashaverse asset directory (with fairseq_dict.json) not found.")
-
-        if not self.weight_path or not os.path.exists(self.weight_path):
-            raise FileNotFoundError("Bhashaverse model weights (model.safetensors / fixed_state_dict.pt) not found.")
+        if not os.path.exists(self.asset_dir):
+            raise FileNotFoundError(f"Bhashaverse asset directory not found at: {self.asset_dir}")
 
         import sentencepiece as spm
-        from transformers import MBartConfig, MBartForConditionalGeneration
+        from transformers import MBartForConditionalGeneration
 
         # 1. Load SentencePiece Processor
         spm_path = os.path.join(self.asset_dir, "onemtv3b_spm.model")
-        if not os.path.exists(spm_path):
-            # Check G: Drive fallback
-            g_spm = r"G:\My Drive\C\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3\onemtv3b_spm.model"
-            spm_path = g_spm if os.path.exists(g_spm) else spm_path
         self.sp = spm.SentencePieceProcessor(model_file=spm_path)
 
         # 2. Load Fairseq Dictionary
         dict_path = os.path.join(self.asset_dir, "fairseq_dict.json")
-        if not os.path.exists(dict_path):
-            g_dict = r"G:\My Drive\C\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3\fairseq_dict.json"
-            dict_path = g_dict if os.path.exists(g_dict) else dict_path
         with open(dict_path, "r", encoding="utf-8") as f:
             fs_dict = json.load(f)
 
@@ -149,39 +91,11 @@ class BhashaverseTranslator:
         self.bos_id = sp_specials.get("bos", 0)
         self.unk_id = sp_specials.get("unk", 3)
 
-        # 3. Load Model via from_pretrained to guarantee proper weight tying and generation config
-        loaded_pretrained = False
-        for cand in [
-            r"D:\hf_cache\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3",
-            r"G:\My Drive\C\hub\models--ltrciiith--bhashaverse\snapshots\02b536f29b9ba211f5d3f25485679bffb23abca3",
-            self.asset_dir,
-        ]:
-            if cand and os.path.exists(cand) and (
-                os.path.exists(os.path.join(cand, "model.safetensors"))
-                or os.path.exists(os.path.join(cand, "pytorch_model.bin"))
-            ):
-                try:
-                    self.model = MBartForConditionalGeneration.from_pretrained(cand, local_files_only=True)
-                    loaded_pretrained = True
-                    break
-                except Exception:
-                    pass
+        # 3. Load Model from local HuggingFace cache snapshot
+        model_load_dir = self.hf_snapshot_dir if os.path.exists(self.hf_snapshot_dir) else self.asset_dir
+        self.model = MBartForConditionalGeneration.from_pretrained(model_load_dir, local_files_only=True)
 
-        if not loaded_pretrained:
-            config_path = os.path.join(self.asset_dir, "config.json")
-            config = MBartConfig.from_json_file(config_path)
-            self.model = MBartForConditionalGeneration(config)
-
-            # Load Weights (safetensors or pt)
-            if self.weight_path.endswith(".safetensors"):
-                from safetensors.torch import load_file
-                state_dict = load_file(self.weight_path)
-                self.model.load_state_dict(state_dict)
-            else:
-                state_dict = torch.load(self.weight_path, map_location="cpu", weights_only=False)
-                self.model.load_state_dict(state_dict)
-
-        # 4. Move to device
+        # 4. Move to GPU / CPU
         try:
             if self.device.type == "cuda" and torch.cuda.is_available():
                 self.model = self.model.to(dtype=torch.float32, device=self.device)
@@ -244,15 +158,7 @@ class BhashaverseTranslator:
         tgt_lang: str = "mal",
     ) -> str:
         """
-        Translate a single sentence.
-
-        Args:
-            text: Input English sentence.
-            src_lang: Source language (default: "eng").
-            tgt_lang: Target language (default: "mal").
-
-        Returns:
-            Translated Malayalam sentence.
+        Translate a single sentence from English to Malayalam.
         """
         self._load_model()
         clean_text = text.strip()

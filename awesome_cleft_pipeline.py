@@ -46,6 +46,7 @@ from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_pu
 from bhashik_focus_reorderer import BhashikFocusReorderer
 from cleft_reorderer import CleftReorderer
 from ssf_pipeline.bhashaverse_translator import BhashaverseTranslator
+from ssf_pipeline.krutrim_translator import KrutrimTranslator
 
 
 class AwesomeAlignerWrapper:
@@ -357,6 +358,8 @@ class AwesomeCleftPipeline:
         self.ssf_pipeline = CleftPipeline()
         self.neural_reorderer = None
         self.translator = None
+        self.bhashaverse_translator = None
+        self.krutrim_translator = None
         self.model_dir = model_dir
         self.device = device
 
@@ -1150,11 +1153,12 @@ class AwesomeCleftPipeline:
     def process(
         self,
         english_sentence: str,
-        malayalam_sentence: str,
+        malayalam_sentence: str = "",
         english_focus: str = "",
         malayalam_focus: str = "",
         operation: str = "CLEFT",
         focus_type: str = "INFORMATION",
+        mt_model: str = "k",
     ) -> Dict[str, Any]:
         """
         Execute full cross-lingual emphasis transfer pipeline.
@@ -1164,6 +1168,7 @@ class AwesomeCleftPipeline:
           - malayalam_sentence: e.g. "അച്ഛൻ ഇന്നലെ തോട്ടത്തിൽ വെച്ച് പുസ്തകം വാങ്ങി." (or with <FF>അച്ഛൻ<FF>)
           - english_focus: Optional focused English word/phrase (e.g. "Father")
           - malayalam_focus: Optional focused Malayalam constituent (e.g. "അച്ഛൻ")
+          - mt_model: 'k' or 'krutrim' (default) vs 'b' or 'bhashaverse'
         """
         # Step 0: Extract focus markers if contained in input strings
         clean_en_sent = english_sentence
@@ -1180,11 +1185,17 @@ class AwesomeCleftPipeline:
                 malayalam_focus = ff_ml_matches[0].strip()
             clean_ml_sent = re.sub(r"</?FF>", "", malayalam_sentence).strip()
 
-        # Step 0b: Automated Neural Machine Translation (Bhashaverse) if Malayalam input is omitted
+        # Step 0b: Automated Neural Machine Translation (Krutrim / Bhashaverse) if Malayalam input is omitted
         if not clean_ml_sent:
-            if self.translator is None:
-                self.translator = BhashaverseTranslator(device=str(self.device) if self.device else None)
-            clean_ml_sent = self.translator.translate(clean_en_sent)
+            chosen_mt = (mt_model or "k").strip().lower()
+            if chosen_mt.startswith("b"):
+                if self.bhashaverse_translator is None:
+                    self.bhashaverse_translator = BhashaverseTranslator(device=str(self.device) if self.device else None)
+                clean_ml_sent = self.bhashaverse_translator.translate(clean_en_sent)
+            else:
+                if self.krutrim_translator is None:
+                    self.krutrim_translator = KrutrimTranslator(device=str(self.device) if self.device else None)
+                clean_ml_sent = self.krutrim_translator.translate(clean_en_sent)
 
         # Step 1: Pre-Cleft Alignment (English -> Malayalam)
         pre_alignment = self.aligner.align(clean_en_sent, clean_ml_sent)
@@ -1389,7 +1400,7 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
         lines.append("-" * 80)
         lines.append(f"  * Preverbal (Contrastive)      : {reorderings['preverbal_focus']}")
         lines.append(f"  * Postverbal (Information)      : {reorderings['postverbal_focus']}")
-        lines.append(f"  * Clause-Initial (Strong)       : {reorderings['clause_initial_focus']}")
+       # lines.append(f"  * Clause-Initial (Strong)       : {reorderings['clause_initial_focus']}")
         comp = reorderings.get("components", {})
         cc = comp.get("cleft_clause", {})
         if cc:
@@ -1442,7 +1453,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--en", "-e", type=str, help="English sentence (e.g. 'Father bought a book in the garden yesterday.')")
-    parser.add_argument("--ml", "-m", type=str, help="Malayalam baseline sentence (e.g. 'അച്ഛൻ ഇന്നലെ തോട്ടത്തിൽ വെച്ച് പുസ്തകം വാങ്ങി.')")
+    parser.add_argument("--ml", type=str, default="", help="Malayalam baseline sentence (e.g. 'അച്ഛൻ ഇന്നലെ തോട്ടത്തിൽ വെച്ച് പുസ്തകം വാങ്ങി.')")
+    parser.add_argument("-m", "--mt", "--model", type=str, default="", help="Malayalam sentence OR MT model ('b' for Bhashaverse, 'k' for Krutrim Translate)")
     parser.add_argument("--en_focus", "-ef", type=str, default="", help="English focus word (e.g. 'Father')")
     parser.add_argument("--ml_focus", "-mf", type=str, default="", help="Malayalam focus word (optional, derived via alignment if omitted)")
     parser.add_argument("--op", "-o", type=str, default="CLEFT", choices=["CLEFT", "FRONTING"], help="Focus operation")
@@ -1466,19 +1478,31 @@ def main():
 
     en_sent = args.en
     if not en_sent or "--ml" in (en_sent or ""):
-        en_match = re.search(r'--(?:en|e)\s+[\'\"]?(.*?)[\'\"]?\s+--(?:ml|m|en_focus|op|output)\b', full_cmd)
+        en_match = re.search(r'--(?:en|e)\s+[\'\"]?(.*?)[\'\"]?\s+--(?:ml|m|mt|model|en_focus|op|output)\b', full_cmd)
         if en_match:
             en_sent = en_match.group(1).strip("'\"")
 
     ml_sent = args.ml
+    mt_model = args.mt
+
+    # Support -m "b", -m "k", -m "bhashaverse", -m "krutrim"
+    if not ml_sent and mt_model and mt_model.strip().lower() not in ("b", "k", "bhashaverse", "krutrim"):
+        # mt was passed a Malayalam sentence
+        ml_sent = mt_model
+        mt_model = "k"
+    elif mt_model and mt_model.strip().lower() in ("b", "k", "bhashaverse", "krutrim"):
+        mt_model = mt_model.strip().lower()
+    else:
+        mt_model = "k"
+
     if not ml_sent:
-        ml_match = re.search(r'--(?:ml|m)\s+[\'\"]?(.*?)[\'\"]?\s+--(?:en_focus|ef|op|output)\b', full_cmd)
+        ml_match = re.search(r'--ml\s+[\'\"]?(.*?)[\'\"]?\s+--(?:en_focus|ef|op|output|mt|model)\b', full_cmd)
         if ml_match:
             ml_sent = ml_match.group(1).strip("'\"")
 
     en_focus = (args.en_focus or "").strip().lstrip("=").strip().strip("'\"").strip()
     if not en_focus:
-        ef_match = re.search(r'--(?:en_focus|ef)\s+[\'\"]?(.*?)[\'\"]?(?:\s+--(?:op|output)\b|$)', full_cmd)
+        ef_match = re.search(r'--(?:en_focus|ef)\s+[\'\"]?(.*?)[\'\"]?(?:\s+--(?:op|output|mt|model)\b|$)', full_cmd)
         if ef_match:
             en_focus = ef_match.group(1).strip("'\"")
 
@@ -1496,6 +1520,7 @@ def main():
         english_focus=en_focus,
         malayalam_focus=args.ml_focus,
         operation=args.op,
+        mt_model=mt_model,
     )
 
     print_pipeline_report(res, output_path=args.output)
