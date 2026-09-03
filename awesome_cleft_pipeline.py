@@ -47,6 +47,7 @@ from bhashik_focus_reorderer import BhashikFocusReorderer
 from cleft_reorderer import CleftReorderer
 from ssf_pipeline.bhashaverse_translator import BhashaverseTranslator
 from ssf_pipeline.krutrim_translator import KrutrimTranslator
+from ssf_pipeline.tokenizer import tokenize_malayalam
 
 
 class AwesomeAlignerWrapper:
@@ -152,35 +153,33 @@ class AwesomeAlignerWrapper:
         "jamaica": ["ജമൈക്ക", "ജമൈക്കയുടെ"],
         "dehradun": ["ഡെറാഡൂൺ"],
         "asean": ["ആസിയാൻ", "ആസിയാനിലെ"],
+        "commonwealth": ["കോമൺവെൽത്ത്"],
+        "karate": ["കരാട്ടെ"],
+        "games": ["ഗെയിംസ്"],
     }
+
+    def _tokenize(self, text: str) -> List[str]:
+        """Universal word + punctuation tokenizer for English and Malayalam."""
+        tokens = re.findall(r"[\w'\u0D00-\u0D7F]+|[.,!?;]", text)
+        return [t for t in tokens if t.strip()]
 
     def align(self, src_sentence: str, tgt_sentence: str) -> Dict[str, Any]:
         """
-        Align words between src_sentence and tgt_sentence using Dual-Pass Alignment Reconciliation
-        and Named Entity / Proper Noun Lexical Anchoring.
+        Align words between src_sentence and tgt_sentence using consistent
+        punctuation-separated tokenization and Bidirectional Alignment Reconciliation.
         """
-        sent_src = src_sentence.strip().split()
-        sent_tgt = tgt_sentence.strip().split()
+        sent_src = self._tokenize(src_sentence)
+        sent_tgt = self._tokenize(tgt_sentence)
 
-        clean_src = [strip_punctuation(w) if strip_punctuation(w) else w for w in sent_src]
-        clean_tgt = [strip_punctuation(w) if strip_punctuation(w) else w for w in sent_tgt]
+        # Single clean bidirectional alignment pass with separated punctuation
+        forward_align = self._run_bert_align(sent_src, sent_tgt)
+        reverse_align = self._run_bert_align(sent_tgt, sent_src)
+        reverse_swapped = set((s_i, t_j) for (t_j, s_i) in reverse_align)
 
-        # Pass 1: Bidirectional Lexical alignment (punctuation-normalized)
-        lexical_forward = self._run_bert_align(clean_src, clean_tgt)
-        lexical_reverse = self._run_bert_align(clean_tgt, clean_src)
-        lexical_reverse_swapped = set((s_i, t_j) for (t_j, s_i) in lexical_reverse)
+        lexical_set = set(forward_align) | reverse_swapped
+        bidirectional_lexical = set(forward_align) & reverse_swapped
 
-        # Pass 2: Bidirectional Raw alignment (with punctuation)
-        raw_forward = self._run_bert_align(sent_src, sent_tgt)
-        raw_reverse = self._run_bert_align(sent_tgt, sent_src)
-        raw_reverse_swapped = set((s_i, t_j) for (t_j, s_i) in raw_reverse)
-
-        lexical_set = set(lexical_forward) | lexical_reverse_swapped
-        raw_set = set(raw_forward) | raw_reverse_swapped
-        bidirectional_lexical = set(lexical_forward) & lexical_reverse_swapped
-        bidirectional_raw = set(raw_forward) & raw_reverse_swapped
-
-        # Pass 3: Named Entity / Proper Noun anchoring
+        # Pass 2: Named Entity / Proper Noun anchoring
         entity_anchors = {}
         for i, s_w in enumerate(sent_src):
             c_s = strip_punctuation(s_w).lower()
@@ -196,9 +195,7 @@ class AwesomeAlignerWrapper:
         anchored_tgt = set(entity_anchors.values())
 
         reconciled_pairs = []
-        all_candidate_pairs = lexical_set | raw_set
-
-        for s_i, t_j in sorted(all_candidate_pairs):
+        for s_i, t_j in sorted(lexical_set):
             if s_i < 0 or t_j < 0 or s_i >= len(sent_src) or t_j >= len(sent_tgt):
                 continue
 
@@ -214,30 +211,25 @@ class AwesomeAlignerWrapper:
             c_tgt = strip_punctuation(tgt_w).strip()
 
             is_pure_punct = (not c_src) and (not c_tgt)
-            is_lexical = (s_i, t_j) in lexical_set
-            is_raw = (s_i, t_j) in raw_set
-            is_bidirectional = (s_i, t_j) in bidirectional_lexical or (s_i, t_j) in bidirectional_raw
+            is_bidirectional = (s_i, t_j) in bidirectional_lexical
 
-            if is_lexical or is_raw:
-                if is_pure_punct:
-                    confidence = "STRUCTURAL"
-                elif is_bidirectional:
-                    confidence = "HIGH_BIDIRECTIONAL"
-                elif is_lexical:
-                    confidence = "HIGH"
-                else:
-                    confidence = "RAW_ALIGN"
+            if is_pure_punct:
+                confidence = "STRUCTURAL"
+            elif is_bidirectional:
+                confidence = "HIGH_BIDIRECTIONAL"
+            else:
+                confidence = "HIGH"
 
-                reconciled_pairs.append({
-                    "src_index": s_i,
-                    "src_word": src_w,
-                    "tgt_index": t_j,
-                    "tgt_word": tgt_w,
-                    "is_lexical": not is_pure_punct,
-                    "is_bidirectional": is_bidirectional,
-                    "is_punctuation_only": is_pure_punct,
-                    "confidence": confidence
-                })
+            reconciled_pairs.append({
+                "src_index": s_i,
+                "src_word": src_w,
+                "tgt_index": t_j,
+                "tgt_word": tgt_w,
+                "is_lexical": not is_pure_punct,
+                "is_bidirectional": is_bidirectional,
+                "is_punctuation_only": is_pure_punct,
+                "confidence": confidence
+            })
 
         # Prune unidirectional noise when a high-confidence bidirectional alignment exists for source token s_i
         src_has_bidir = set(item["src_index"] for item in reconciled_pairs if item["is_bidirectional"] and not item["is_punctuation_only"])
@@ -259,6 +251,7 @@ class AwesomeAlignerWrapper:
                     "tgt_index": t_j,
                     "tgt_word": sent_tgt[t_j],
                     "is_lexical": True,
+                    "is_bidirectional": True,
                     "is_punctuation_only": False,
                     "confidence": "ENTITY_ANCHOR"
                 })
@@ -454,8 +447,9 @@ class AwesomeCleftPipeline:
         # 7. mlmorph adjective / quantifier POS fallback
         try:
             analyses = self.ssf_pipeline._analysis_layer.analyser.analyse(clean)
+            has_noun = any("<n>" in raw or "<np>" in raw or raw.endswith("<eng>") for raw, _ in analyses)
             for raw, _ in analyses:
-                if "<adj>" in raw or "<quantifier>" in raw:
+                if ("<adj>" in raw and not has_noun) or "<quantifier>" in raw:
                     return True
         except Exception:
             pass
@@ -1013,7 +1007,7 @@ class AwesomeCleftPipeline:
             curr_clean = strip_punctuation(tgt_tokens[merged_end])
             if self._is_np_modifier(curr_clean) and not any(curr_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്")) and matrix_verb_idx != (merged_end + 1):
                 next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
-                if next_clean and not self._is_verbal_token(tgt_tokens[merged_end + 1]):
+                if next_clean and not self._is_verbal_token(tgt_tokens[merged_end + 1]) and not self._is_np_modifier(next_clean):
                     merged_end += 1
         if merged_start > merged_end:
             merged_start = merged_end

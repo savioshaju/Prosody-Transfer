@@ -1,5 +1,12 @@
+import os
+import sys
 import logging
 import string
+
+_venv_site = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "venv", "Lib", "site-packages")
+if os.path.exists(_venv_site) and _venv_site not in sys.path:
+    sys.path.append(_venv_site)
+
 from mlmorph import Analyser, Generator
 
 logger = logging.getLogger(__name__)
@@ -427,21 +434,21 @@ class CopulaLayer:
                 sandhi_patterns = self.get_sandhi_css_candidates(css)
                 filtered = [g for g in generated_forms if any(p in g for p in sandhi_patterns)]
                 if filtered and is_valid_sandhi(core, filtered[0]):
-                    return f"{leading}{filtered[0]}{trailing}", "YES", "case-preserving"
+                    return f"{leading}{filtered[0]}{trailing}", "YES", "fst-case-preserving"
                 if generated_forms and is_valid_sandhi(core, generated_forms[0]):
-                    return f"{leading}{generated_forms[0]}{trailing}", "YES", "case-preserving"
+                    return f"{leading}{generated_forms[0]}{trailing}", "YES", "fst-case-preserving"
 
             # Direct surface fallback preserving case
             surface_form = attach_aanu_surface(core)
-            return f"{leading}{surface_form}{trailing}", "YES", "case-preserving"
+            return f"{leading}{surface_form}{trailing}", "YES", "fallback-case-preserving"
 
         # 3. Normal direct copula generation for non-case words
         if raw_analysis and "<" in raw_analysis:
             target_analysis = f"{raw_analysis}ആണ്<aff>"
             results = self.generator.generate(target_analysis)
             if results and is_valid_sandhi(core, results[0][0]):
-                return f"{leading}{results[0][0]}{trailing}", "YES", "normal"
+                return f"{leading}{results[0][0]}{trailing}", "YES", "fst-normal"
 
         # Direct surface fallback
         surface_form = attach_aanu_surface(core)
-        return f"{leading}{surface_form}{trailing}", "YES", "normal"
+        return f"{leading}{surface_form}{trailing}", "YES", "fallback-surface"
