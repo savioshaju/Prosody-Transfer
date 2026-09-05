@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import logging
 import string
 
@@ -68,6 +69,35 @@ def _attach_aanu_surface_core(word: str) -> str:
     # ---------------------------------------------------------------
     # Disjunctive quote / clause nominalization: -എന്നോ, -മെന്നോ → -എന്നതിനെയാണ്
     # ---------------------------------------------------------------
+    # 0a. Temporal year / numeral locative shift: [Year]-ലെ → [Year]-ലാണ്
+    # ---------------------------------------------------------------
+    year_match = re.match(r"^(\d{1,4})[\s\-]*ലെ$", word)
+    if year_match:
+        return f"{year_match.group(1)}-ലാണ്"
+
+    # ---------------------------------------------------------------
+    # 0b. Genitive / Possessive pronominal clefting: -ന്റെ → -ന്റേതാണ്, -ുടെ → -ുടേതാണ്
+    # ---------------------------------------------------------------
+    if word.endswith("ന്റെ") or word.endswith("ിന്റെ"):
+        stem = word[:-len("ിന്റെ")] + "ി" if word.endswith("ിന്റെ") else word[:-len("ന്റെ")]
+        return stem + "ന്റേതാണ്"
+    if word.endswith("ുടെ") or word.endswith("യുടെ"):
+        stem = word[:-len("യുടെ")] + "യ" if word.endswith("യുടെ") else word[:-len("ുടെ")]
+        return stem + "ുടേതാണ്"
+    if word.endswith("്റെ"):
+        return word[:-len("്റെ")] + "്റേതാണ്"
+
+    # ---------------------------------------------------------------
+    # 0c. Descriptive Adjectives / Participles: [Adj] + ആണ് → [Adj]താണ്
+    # ---------------------------------------------------------------
+    _COMMON_ADJECTIVES = frozenset({
+        "പഴയ", "നല്ല", "ചുവന്ന", "വലിയ", "ചെറിയ", "കറുത്ത", "വെളുത്ത", "പുതിയ",
+        "നീണ്ട", "കുറഞ്ഞ", "കൂടിയ", "പച്ച", "മഞ്ഞ", "നീല", "മൊത്തം"
+    })
+    _ADJ_NOMINAL_SUFFIXES = ("ിട്ടുള്ള", "ഉള്ള", "ുന്ന", "ാത്ത", "പ്പെട്ട", "മായ", "തായ")
+    if word in _COMMON_ADJECTIVES or any(word.endswith(sfx) for sfx in _ADJ_NOMINAL_SUFFIXES):
+        return word + "താണ്"
+
     if word.endswith("എന്നോ"):
         return word[:-len("എന്നോ")] + "എന്നതിനെയാണ്"
     if word.endswith("മെന്നോ"):
@@ -133,12 +163,11 @@ def _attach_aanu_surface_core(word: str) -> str:
         return word[:-1] + "ാണ്"
 
     # ---------------------------------------------------------------
-    # Predicate complement suffix -ായി → -ായാണ്
-    # (e.g. വ്യക്തിയായി → വ്യക്തിയായാണ്, ആയി → ആയാണ്)
-    # Must precede Yakāra-āgamam to avoid producing *-ായിയാണ്.
+    # Predicate complement / adverbial suffix -ായി + ആണ് → -ായിയാണ്
+    # (e.g. വ്യക്തിയായി → വ്യക്തിയായിയാണ് via Yakāra-āgamam: vowel sign ി → insert യ്)
     # ---------------------------------------------------------------
     if word.endswith("ായി"):
-        return word[:-1] + "ാണ്"
+        return word + "യാണ്"
 
     # ---------------------------------------------------------------
     # 1. ആഗമം — Vowel-based Insertion
@@ -401,7 +430,7 @@ class CopulaLayer:
         if "ആണ്" in core or (raw_analysis and "<aff>" in raw_analysis):
             return f"{leading}{core}{trailing}", "YES", "already-copular"
 
-        # 1b. Predicate complement / adverbial suffix -ായി → -ായാണ്
+        # 1b. Predicate complement / adverbial suffix -ായി → -ായിയാണ്
         if core.endswith("ായി"):
             return f"{leading}{attach_aanu_surface(core)}{trailing}", "YES", "predicate-complement"
 

@@ -45,9 +45,11 @@ import torch
 from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_punctuation
 from bhashik_focus_reorderer import BhashikFocusReorderer
 from cleft_reorderer import CleftReorderer
+from constituency_reorderer import ConstituencyReorderer
 from ssf_pipeline.bhashaverse_translator import BhashaverseTranslator
 from ssf_pipeline.krutrim_translator import KrutrimTranslator
 from ssf_pipeline.tokenizer import tokenize_malayalam
+from ssf_pipeline.simalign_wrapper import SimAlignerWrapper
 
 
 class AwesomeAlignerWrapper:
@@ -342,11 +344,26 @@ class AwesomeCleftPipeline:
         self,
         cleft_engine: str = "ssf",  # "ssf" (CleftPipeline) or "neural" (BhashikFocusReorderer)
         model_dir: Optional[str] = None,
-        aligner_model: str = "bert-base-multilingual-cased",
+        aligner_type: str = "awesome",  # "awesome" (default) or "simalign"
+        aligner_model: Optional[str] = None,
+        aligner_method: str = "itermax",  # for simalign: "itermax", "argmax", "match"
         device: Optional[str] = None,
     ):
         self.cleft_engine = cleft_engine.lower()
-        self.aligner = AwesomeAlignerWrapper(model_name=aligner_model, device=device)
+        self.aligner_type = (aligner_type or "awesome").lower()
+        default_model = "bert-base-multilingual-cased"
+
+        if self.aligner_type == "simalign":
+            self.aligner = SimAlignerWrapper(
+                model_name=aligner_model if aligner_model else default_model,
+                matching_method=aligner_method,
+                device=device,
+            )
+        else:
+            self.aligner = AwesomeAlignerWrapper(
+                model_name=aligner_model if aligner_model else default_model,
+                device=device,
+            )
         
         self.ssf_pipeline = CleftPipeline()
         self.neural_reorderer = None
@@ -593,6 +610,21 @@ class AwesomeCleftPipeline:
                     focus_src_start, focus_src_end = i, i + ef_len - 1
                     break
 
+        # Try hyphen-split variant if direct match failed (aligners split hyphens like 'four-square' into separate tokens)
+        if focus_src_start is None:
+            en_focus_dehyphen = [
+                strip_punctuation(w).lower()
+                for w in re.sub(r'[-–—]', ' ', english_focus).strip().split()
+                if strip_punctuation(w)
+            ]
+            ef_dh_len = len(en_focus_dehyphen)
+            if ef_dh_len > 0:
+                for i in range(len(src_clean) - ef_dh_len + 1):
+                    if [src_clean[i + k] for k in range(ef_dh_len)] == en_focus_dehyphen:
+                        focus_src_start, focus_src_end = i, i + ef_dh_len - 1
+                        en_focus_clean = en_focus_dehyphen
+                        break
+
         # Fallback: density-penalized subsegment search
         if focus_src_start is None:
             best_density = -1.0
@@ -605,7 +637,6 @@ class AwesomeCleftPipeline:
                     if matches > 0 and density > best_density:
                         best_density = density
                         best_window = (i, j)
-            best_window = (i, j)
             focus_src_start, focus_src_end = best_window
 
         # ONLY source indices strictly within [focus_src_start..focus_src_end] are valid!
@@ -635,21 +666,31 @@ class AwesomeCleftPipeline:
                         "is_bidirectional": item.get("is_bidirectional", False),
                     })
 
-        # Reconcile bidirectional consensus: if bidirectional pairs exist for the focus, discard unverified single-pass links
-        bidirectional_cands = [c for c in candidate_alignments if c.get("is_bidirectional", False)]
-        if bidirectional_cands:
-            candidate_alignments = bidirectional_cands
-        else:
-            # If no bidirectional consensus links exist for focus, discard noisy single-pass links that conflict with reverse alignment
-            candidate_alignments = [
-                c for c in candidate_alignments
-                if not any(
-                    rev_item.get("tgt_index") == c["tgt_index"]
-                    and rev_item.get("is_lexical", True)
-                    and rev_item.get("src_index") not in matching_src_indices
-                    for rev_item in tgt_to_src
-                )
-            ]
+        # Reconcile bidirectional consensus PER source focus token:
+        # If bidirectional pairs exist for a given source token, prefer bidirectional for THAT token.
+        # But NEVER discard other source tokens' alignments across a multi-word focus!
+        reconciled_cands = []
+        for s_idx in sorted(matching_src_indices):
+            s_cands = [c for c in candidate_alignments if c["src_index"] == s_idx]
+            if not s_cands:
+                continue
+            s_bidi = [c for c in s_cands if c.get("is_bidirectional", False)]
+            if s_bidi:
+                reconciled_cands.extend(s_bidi)
+            else:
+                # Discard noisy single-pass links that conflict with reverse alignment
+                valid_s = [
+                    c for c in s_cands
+                    if not any(
+                        rev_item.get("tgt_index") == c["tgt_index"]
+                        and rev_item.get("is_lexical", True)
+                        and rev_item.get("src_index") not in matching_src_indices
+                        for rev_item in tgt_to_src
+                    )
+                ]
+                reconciled_cands.extend(valid_s if valid_s else s_cands)
+        if reconciled_cands:
+            candidate_alignments = reconciled_cands
 
         if not candidate_alignments:
             if matching_src_indices and len(src_tokens) > 0 and len(tgt_tokens) > 0:
@@ -740,7 +781,8 @@ class AwesomeCleftPipeline:
         cand_indices = sorted(cand_indices_set)
         if not cand_indices:
             if matching_src_indices and len(src_tokens) > 0 and len(tgt_tokens) > 0:
-                src_mid_ratio = (matching_src_indices[0] + matching_src_indices[-1]) / (2.0 * max(1, len(src_tokens) - 1))
+                sorted_src_indices = sorted(matching_src_indices)
+                src_mid_ratio = (sorted_src_indices[0] + sorted_src_indices[-1]) / (2.0 * max(1, len(src_tokens) - 1))
                 approx_tgt_idx = min(int(round(src_mid_ratio * (len(tgt_tokens) - 1))), len(tgt_tokens) - 1)
                 cand_indices = [approx_tgt_idx]
             else:
@@ -776,12 +818,15 @@ class AwesomeCleftPipeline:
             approx_tgt_idx = min(int(round(src_mid_ratio * (len(tgt_tokens) - 1))), len(tgt_tokens) - 1)
 
             def _cand_score(idx: int) -> Tuple[int, int, int]:
+                tok_cln = strip_punctuation(tgt_tokens[idx])
+                # Prefer head noun bearing overt case suffix (Accusative, Dative, Locative, Sociative, Instrumental, Genitive)
+                has_case = 1 if any(tok_cln.endswith(sfx) for sfx in ("നെ", "യെ", "ന്", "ക്ക്", "യ്ക്ക്", "ിൽ", "ൽ", "ത്ത്", "ന്റെ", "യുടെ", "കൊണ്ട്", "ഓട്", "യോട്")) else 0
                 focus_cnt = sum(
                     1 for c in candidate_alignments
                     if c.get("tgt_index") == idx and c.get("src_index") in matching_src_indices
                 )
-                dist_penalty = -abs(idx - approx_tgt_idx)
-                return (focus_cnt, dist_penalty, -idx)
+                # In head-final Malayalam, the head noun is at the right end of the NP; prefer case-bearing noun, then alignment coverage, then rightmost index
+                return (has_case, focus_cnt, idx)
 
             head_anchor = max(cand_indices, key=_cand_score)
 
@@ -1099,23 +1144,30 @@ class AwesomeCleftPipeline:
             end = focus_span_indices[-1]
             if 0 <= start < len(ml_tokens) and 0 <= end < len(ml_tokens):
                 ml_tokens_copy = list(ml_tokens)
-                end_tok = ml_tokens_copy[end]
-                punct = ""
-                while end_tok and end_tok[-1] in (",", ".", ";", "!", "?"):
-                    punct = end_tok[-1] + punct
-                    end_tok = end_tok[:-1]
-                ml_tokens_copy[end] = end_tok
+                focus_part_candidate = " ".join(strip_punctuation(ml_tokens_copy[k]) for k in range(start, end + 1) if strip_punctuation(ml_tokens_copy[k]))
+                target_focus_clean = " ".join(strip_punctuation(w) for w in (clean_proj_focus or "").split() if strip_punctuation(w))
 
-                before = " ".join(ml_tokens_copy[:start])
-                focus_part = " ".join(ml_tokens_copy[start : end + 1])
-                after = " ".join(ml_tokens_copy[end + 1 :])
-                focus_tagged = f"<FF>{focus_part}<FF>{punct}"
-                parts = [p for p in [before, focus_tagged, after] if p]
-                return " ".join(parts)
+                # Verify that the index slice actually matches the projected focus string!
+                # If aligner split punctuation differently (e.g. commas), indices into ml_tokens.split()
+                # are shifted, so we fall through to Strategy 2 (sliding window text matching).
+                if not target_focus_clean or focus_part_candidate == target_focus_clean:
+                    end_tok = ml_tokens_copy[end]
+                    punct = ""
+                    while end_tok and end_tok[-1] in (",", ".", ";", "!", "?"):
+                        punct = end_tok[-1] + punct
+                        end_tok = end_tok[:-1]
+                    ml_tokens_copy[end] = end_tok
+
+                    before = " ".join(ml_tokens_copy[:start])
+                    focus_part = " ".join(ml_tokens_copy[start : end + 1])
+                    after = " ".join(ml_tokens_copy[end + 1 :])
+                    focus_tagged = f"<FF>{focus_part}<FF>{punct}"
+                    parts = [p for p in [before, focus_tagged, after] if p]
+                    return " ".join(parts)
 
         # Strategy 2: Token-level matching (handles punctuation differences)
         if clean_proj_focus:
-            focus_words = clean_proj_focus.split()
+            focus_words = [strip_punctuation(w) for w in clean_proj_focus.split() if strip_punctuation(w)]
             fc_len = len(focus_words)
 
             # Contiguous match with punctuation stripping
@@ -1123,9 +1175,18 @@ class AwesomeCleftPipeline:
                 window = [strip_punctuation(ml_tokens[i + k]) for k in range(fc_len)]
                 if window == focus_words:
                     before = " ".join(ml_tokens[:i])
-                    focus_part = " ".join(ml_tokens[i : i + fc_len])
-                    after = " ".join(ml_tokens[i + fc_len :])
-                    parts = [p for p in [before, f"<FF>{focus_part}<FF>", after] if p]
+                    ml_tokens_copy = list(ml_tokens)
+                    end_tok = ml_tokens_copy[i + fc_len - 1]
+                    punct = ""
+                    while end_tok and end_tok[-1] in (",", ".", ";", "!", "?"):
+                        punct = end_tok[-1] + punct
+                        end_tok = end_tok[:-1]
+                    ml_tokens_copy[i + fc_len - 1] = end_tok
+
+                    focus_part = " ".join(ml_tokens_copy[i : i + fc_len])
+                    after = " ".join(ml_tokens_copy[i + fc_len :])
+                    focus_tagged = f"<FF>{focus_part}<FF>{punct}"
+                    parts = [p for p in [before, focus_tagged, after] if p]
                     return " ".join(parts)
 
             # Single-word fallback
@@ -1314,6 +1375,16 @@ class AwesomeCleftPipeline:
         reorderer = CleftReorderer()
         result["cleft_reorderings"] = reorderer.reorder(result)
 
+        # Step 6: Parallel Constituency Reordering Branch
+        # Operates on the ORIGINAL (non-clefted) sentence.
+        # Only three rules are empirically attested; all others return NOT_APPLICABLE.
+        constituency_reorderer = ConstituencyReorderer()
+        result["constituency_reordering"] = constituency_reorderer.reorder(
+            original_sentence=clean_ml_sent,
+            focused_constituent=clean_proj_focus,
+            focus_role=focus_type,  # passed from process() arg — e.g. "ADVERB", "DIRECT_OBJECT"
+        )
+
         return result
 
 
@@ -1386,19 +1457,27 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     for item in res["post_cleft_en_to_ml_alignment"].get("src_to_tgt_alignments", []):
         lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
 
-    # --- Cleft Positional Reorderings ---
+    # ═══════════════════════════════════════════════════════════
+    # Parallel Emphasis Methods: CLEFTING vs REORDERING
+    # ═══════════════════════════════════════════════════════════
+    lines.append("\n" + "═" * 80)
+    lines.append("EMPHASIS METHOD COMPARISON")
+    lines.append("═" * 80)
+
+    # --- Branch A: CLEFTING ---
+    lines.append("\n" + "-" * 80)
+    lines.append("--- BRANCH A: CLEFTING ---")
+    lines.append("-" * 80)
+    lines.append(f"  * Cleft Output (Emphasized)    : {res['emphasized_malayalam_sentence']}")
     reorderings = res.get("cleft_reorderings", {})
     if reorderings and reorderings.get("preverbal_focus"):
-        lines.append("\n" + "-" * 80)
-        lines.append("--- Cleft Positional Reorderings ---")
-        lines.append("-" * 80)
-        lines.append(f"  * Preverbal (Contrastive)      : {reorderings['preverbal_focus']}")
-        lines.append(f"  * Postverbal (Information)      : {reorderings['postverbal_focus']}")
-       # lines.append(f"  * Clause-Initial (Strong)       : {reorderings['clause_initial_focus']}")
+        lines.append(f"  * Preverbal  (Contrastive)     : {reorderings['preverbal_focus']}")
+        lines.append(f"  * Postverbal (Informational)   : {reorderings['postverbal_focus']}")
+        lines.append(f"  * Clause-Initial (Strong)      : {reorderings['clause_initial_focus']}")
         comp = reorderings.get("components", {})
         cc = comp.get("cleft_clause", {})
         if cc:
-            lines.append(f"  * Components:")
+            lines.append(f"  * Cleft Components:")
             if comp.get("pre_clauses"):
                 lines.append(f"      Pre-clauses      : {comp['pre_clauses']}")
             lines.append(f"      Background       : {cc.get('background', [])}")
@@ -1406,8 +1485,26 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
             lines.append(f"      Nominalized Verb : {cc.get('nominalized_verb', [])}")
             if comp.get("post_clauses"):
                 lines.append(f"      Post-clauses     : {comp['post_clauses']}")
+    else:
+        lines.append("  * (No positional cleft reorderings produced.)")
 
-    lines.append("\n" + "=" * 80 + "\n")
+    # --- Branch B: CONSTITUENT REORDERING ---
+    lines.append("\n" + "-" * 80)
+    lines.append("--- BRANCH B: CONSTITUENT REORDERING (Empirical Rules Only) ---")
+    lines.append("-" * 80)
+    cr = res.get("constituency_reordering", {})
+    if cr.get("applicable"):
+        lines.append(f"  * Rule Applied                 : {cr.get('rule_applied')}")
+        lines.append(f"  * Reordered Output             : {cr.get('reordered_sentence')}")
+        lines.append(f"  * Reason                       : {cr.get('reason')}")
+        if cr.get("focus_span_tokens"):
+            lines.append(f"  * Focus Span Tokens            : {cr.get('focus_span_tokens')}")
+    else:
+        lines.append(f"  * Status                       : NOT APPLICABLE")
+        lines.append(f"  * Reason                       : {cr.get('reason', '—')}")
+        lines.append(f"  * (Only ADVERB_FRONTING, DO_FRONTING, VERB_FRONTING are attested.)")
+
+    lines.append("\n" + "═" * 80 + "\n")
     return "\n".join(lines)
 
 
@@ -1422,21 +1519,9 @@ def print_pipeline_report(res: Dict[str, Any], output_path: str = "output.txt"):
     with open(abs_out_path, "w", encoding="utf-8") as f:
         f.write(report_text)
 
-    # Minimal terminal output
-    print("=" * 68)
+
     print("✓ Cross-Lingual Focus Transfer & Clefting Completed")
-    print("=" * 68)
-    print(f"• English Focus               : {res['english_focus'] or '—'}")
-    print(f"• Selected Malayalam Focus   : {res['focused_malayalam_constituent']}")
-    print(f"• Emphasized Malayalam Output: {res['emphasized_malayalam_sentence']}")
-    reorderings = res.get("cleft_reorderings", {})
-    if reorderings and reorderings.get("preverbal_focus"):
-        print(f"• Preverbal  (Contrastive)   : {reorderings['preverbal_focus']}")
-        print(f"• Postverbal (Information)   : {reorderings['postverbal_focus']}")
-        print(f"• Clause-Initial (Strong)    : {reorderings['clause_initial_focus']}")
-    print(f"• Focus Candidates Evaluated : {len(res.get('focus_candidates', []))}")
-    print(f"• Full report & diagnostics   : {abs_out_path}")
-    print("=" * 68)
+   
 
 
 def main():
@@ -1452,7 +1537,20 @@ def main():
     parser.add_argument("--en_focus", "-ef", type=str, default="", help="English focus word (e.g. 'Father')")
     parser.add_argument("--ml_focus", "-mf", type=str, default="", help="Malayalam focus word (optional, derived via alignment if omitted)")
     parser.add_argument("--op", "-o", type=str, default="CLEFT", choices=["CLEFT", "FRONTING"], help="Focus operation")
+    parser.add_argument("--aligner", "-a", type=str, default="awesome", choices=["awesome", "simalign"], help="Word aligner engine ('awesome' or 'simalign')")
+    parser.add_argument("--aligner_model", type=str, default="", help="Model for word aligner (e.g. 'bert-base-multilingual-cased' or 'xlm-roberta-base')")
+    parser.add_argument("--aligner_method", type=str, default="itermax", choices=["itermax", "argmax", "match"], help="Matching method for SimAlign ('itermax', 'argmax', 'match')")
     parser.add_argument("--output", "-out", type=str, default="output.txt", help="Output file path (default: output.txt)")
+    parser.add_argument(
+        "--focus_role", "-fr", type=str, default="",
+        choices=["", "ADVERB", "ADVERBIAL", "TEMPORAL", "MANNER",
+                 "DIRECT_OBJECT", "OBJECT", "DO", "ACCUSATIVE", "PATIENT",
+                 "VERB", "FINITE_VERB", "PREDICATE", "VP", "ACTION",
+                 "SUBJECT", "ADJECTIVE", "PP", "NP", "INFORMATION"],
+        help=("Grammatical role of the focus constituent for reordering rule selection. "
+              "E.g. 'ADVERB' enables ADVERB_FRONTING, 'DIRECT_OBJECT' enables DO_FRONTING, "
+              "'VERB' enables VERB_FRONTING. Leave empty for heuristic detection."),
+    )
 
     # Sanitize sys.argv to handle accidental '= "value"' syntax from shell
     cleaned_argv = []
@@ -1507,13 +1605,18 @@ def main():
     ml_sent = ml_sent or ""
     en_focus = en_focus or "Father"
 
-    pipeline = AwesomeCleftPipeline()
+    pipeline = AwesomeCleftPipeline(
+        aligner_type=args.aligner,
+        aligner_model=args.aligner_model or None,
+        aligner_method=args.aligner_method,
+    )
     res = pipeline.process(
         english_sentence=en_sent,
         malayalam_sentence=ml_sent,
         english_focus=en_focus,
         malayalam_focus=args.ml_focus,
         operation=args.op,
+        focus_type=args.focus_role or "INFORMATION",
         mt_model=mt_model,
     )
 

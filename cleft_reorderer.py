@@ -173,8 +173,14 @@ class CleftReorderer:
                 clause_initial_focus – [Focus+ആണ്] + [BG] + [NomVerb]
                 components           – structural decomposition breakdown
         """
-        emphasized = pipeline_result.get("emphasized_malayalam_sentence", "")
-        cleft_dict = pipeline_result.get("cleft_pipeline_output", {})
+        emphasized = (
+            pipeline_result.get("emphasized_malayalam_sentence", "")
+            or pipeline_result.get("clefted_sentence", "")
+        )
+        cleft_dict = (
+            pipeline_result.get("cleft_pipeline_output", {})
+            or pipeline_result
+        )
         focused_constituent = (
             pipeline_result.get("focused_malayalam_constituent", "")
             or cleft_dict.get("focused_constituent", "")

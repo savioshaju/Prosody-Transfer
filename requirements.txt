@@ -4,3 +4,4 @@ sentencepiece>=0.1.99
 indic-nlp-library>=0.92
 pandas>=2.0.0
 mlmorph>=1.0.0
+simalign>=0.4

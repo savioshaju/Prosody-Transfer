@@ -158,9 +158,7 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
     focused_pos_upper = (focused_pos or "").upper()
     sentence_pos_upper = [tag.upper() for tag in (sentence_pos_tags or [])]
 
-    # 1. Quantifiers / Numerals / Frequency expressions
-    # Standalone quantifiers/frequency expressions (e.g. രണ്ടുതവണ, കുറച്ച്, അല്പം) -> PE
-    # Quantifiers/ordinals containing or modifying a noun head (e.g. രണ്ടാംഭാഗം, ഒന്നാംഘട്ടം) -> allow CLEFT
+    # 1. Quantifiers / Numerals / Frequency expressions -> Now supported via copularization (e.g. മൂന്നാണ്, കുറച്ചാണ്)
     standalone_frequency_adverbs = (
         "കുറച്ച്", "അല്പം", "ഏറെ", "കൂടുതൽ", "ചിലത്", "ഒരല്പം", "ഒരുപാട്", "ധാരാളം"
     )
@@ -173,12 +171,11 @@ def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_ta
     )
 
     if is_qt:
-        if not _has_nominal_head_in_qt(focused_word):
-            return "PE"
+        return "CLEFT"
 
-    # 2. Adjectives
+    # 2. Adjectives -> Now supported via nominalization (e.g. പഴയതാണ്, ചുവന്നതാണ്, നല്ലതാണ്)
     if focused_pos_upper.startswith("JJ") or focused_pos_upper == "JJ":
-        return "PE"
+        return "CLEFT"
 
     # 3. Check for lexical main verb V_VM_* or verbal surface suffix in sentence
     has_lexical_vm = any(
@@ -585,25 +582,31 @@ class CleftPipeline:
         # --------------------------------------------------------------
         # PHASE 3: CLEFT STRUCTURE & COPULA GENERATION (Adding ആണ്)
         # --------------------------------------------------------------
-        prefix, head_word, appositive = _extract_head_and_appositives(focus_word)
-
-        if head_word:
-            head_copula, _preserved, copula_path = self._copula_layer.transform_word(
-                head_word, selected_analysis
-            )
-            parts = [p for p in (prefix, head_copula, appositive) if p]
-            copula_form = " ".join(parts)
-        elif constituent_type == "TIME" and any(
-            focus_word.endswith(sfx)
-            for sfx in TEMPORAL_CLAUSE_SUFFIXES
-        ):
-            copula_form = self._make_temporal_copula(focus_word)
+        year_match = re.match(r"^(\d{1,4})[\s\-]*ലെ$", focus_word.strip())
+        if year_match:
+            copula_form = f"{year_match.group(1)}-ലാണ്"
             _preserved = "YES"
-            copula_path = "temporal-clause"
+            copula_path = "temporal-year-locative"
         else:
-            copula_form, _preserved, copula_path = self._copula_layer.transform_word(
-                focus_word, selected_analysis
-            )
+            prefix, head_word, appositive = _extract_head_and_appositives(focus_word)
+
+            if head_word:
+                head_copula, _preserved, copula_path = self._copula_layer.transform_word(
+                    head_word, selected_analysis
+                )
+                parts = [p for p in (prefix, head_copula, appositive) if p]
+                copula_form = " ".join(parts)
+            elif constituent_type == "TIME" and any(
+                focus_word.endswith(sfx)
+                for sfx in TEMPORAL_CLAUSE_SUFFIXES
+            ):
+                copula_form = self._make_temporal_copula(focus_word)
+                _preserved = "YES"
+                copula_path = "temporal-clause"
+            else:
+                copula_form, _preserved, copula_path = self._copula_layer.transform_word(
+                    focus_word, selected_analysis
+                )
 
         if copula_path in ("not-supported",) or copula_form in ("NOT SUPPORTED", "ALREADY COPULAR"):
             return CleftResult(
@@ -845,7 +848,7 @@ class CleftPipeline:
             return False, "INDEFINITE_PRONOUN", "BLOCKED", f"Indefinite/interrogative pronoun '{focus_word}' cannot naturally be cleft-focused."
 
         if self._is_predicate_adjective(analysis, dep_relation, focus_token):
-            return False, "ADJECTIVE_PREDICATE", "BLOCKED", f"Adjective predicate '{focus_word}' cannot be cleft-focused directly without nominalization."
+            return True, "ADJECTIVE_NOMINALIZED", "ALLOWED", ""
 
         # ---------------------------------------------------------
         # 2. SEMANTIC ADJUNCTS (TEMPORAL, MANNER, CAUSE, LOCATION)
@@ -886,6 +889,9 @@ class CleftPipeline:
         if case == "ablative":
             return True, "LOCATION", "ALLOWED", ""
 
+        if case == "genitive" or any(focus_word.endswith(sfx) for sfx in ("ന്റെ", "യുടെ", "ുടെ", "ിന്റെ", "്റെ")):
+            return True, "GENITIVE_POSSESSOR", "ALLOWED", ""
+
         # ---------------------------------------------------------
         # 4. SYNTACTIC CORE ARGUMENTS & DEFINITE PRONOUNS
         # ---------------------------------------------------------
@@ -911,6 +917,20 @@ class CleftPipeline:
             or getattr(analysis, "pos", "") in ("VERB", "verb")
         ):
             return True, "VP_ACTION", "ALLOWED", ""
+
+        # ---------------------------------------------------------
+        # 5b. ADJECTIVES & QUANTIFIERS (NOMINALIZED)
+        # ---------------------------------------------------------
+        if (
+            form_pos.startswith("JJ")
+            or (analysis and getattr(analysis, "pos", "") in ("ADJ", "adj"))
+            or focus_word in ADJECTIVE_PREDICATES
+            or any(focus_word.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ല്ല", "ിയ"))
+        ):
+            return True, "ADJECTIVE_NOMINALIZED", "ALLOWED", ""
+
+        if form_pos.startswith("QT") or focus_word in ("കുറച്ച്", "അല്പം", "ഏറെ", "കൂടുതൽ", "ധാരാളം", "മൂന്ന്", "രണ്ട്", "ഒന്ന്", "പത്ത്"):
+            return True, "QUANTIFIER_NOMINALIZED", "ALLOWED", ""
 
         # ---------------------------------------------------------
         # 6. SAFE FALLBACK
