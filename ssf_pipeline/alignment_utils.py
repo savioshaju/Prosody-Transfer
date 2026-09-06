@@ -69,6 +69,11 @@ def is_word_match(w1: str, w2: str) -> bool:
     min_len = min(len(c1), len(c2))
     if min_len >= 3 and c1[: min_len - 1] == c2[: min_len - 1]:
         return True
+    for sfx in ("ആണ്", "ാണ്", "താണ്", "യാണ്", "നാണ്", "ാണു്", "ാണു"):
+        if c1.endswith(sfx) and (c1[:-len(sfx)] == c2 or is_word_match(c1[:-len(sfx)], c2)):
+            return True
+        if c2.endswith(sfx) and (c2[:-len(sfx)] == c1 or is_word_match(c1, c2[:-len(sfx)])):
+            return True
     return False
 
 
@@ -83,9 +88,9 @@ def extract_alignment_and_prosody(
     Compute full alignment, prosody label sequence, position tracking,
     copula attachment, and nominalized verb details.
     """
-    orig_clean_sent = original_sentence.strip()
-    cleft_clean_sent = clefted_sentence.strip()
-    fc_clean_str = focused_constituent.strip()
+    orig_clean_sent = re.sub(r"</?[A-Za-z]+>", "", original_sentence).strip()
+    cleft_clean_sent = re.sub(r"</?[A-Za-z]+>", "", clefted_sentence).strip()
+    fc_clean_str = re.sub(r"</?[A-Za-z]+>", "", focused_constituent).strip()
 
     src_tokens = orig_clean_sent.split()
     clean_src = [strip_punctuation(t) for t in src_tokens]
@@ -96,7 +101,7 @@ def extract_alignment_and_prosody(
     fc_tokens = fc_clean_str.split()
     clean_fc = [strip_punctuation(w) for w in fc_tokens]
 
-    # 1. Position Before & Prosody Label Sequence
+    # 1. Position Before (in original source sentence)
     pos_before = []
     fc_len = len(clean_fc)
     if fc_len > 0:
@@ -122,7 +127,7 @@ def extract_alignment_and_prosody(
             if best_window and best_score > 0:
                 pos_before = best_window
 
-    prosody_label_sequence = [1 if i in pos_before else 0 for i in range(len(src_tokens))]
+    source_prosody_label_sequence = [1 if i in pos_before else 0 for i in range(len(src_tokens))]
 
     # 2. Main Verb & Nominalized Verb
     if not main_verb:
@@ -143,7 +148,7 @@ def extract_alignment_and_prosody(
 
     clean_norm_verb = strip_punctuation(normalized_verb)
 
-    # 3. Position After Movement
+    # 3. Position After Movement (in final target/clefted sentence)
     pos_after = []
     if fc_len > 0:
         # A. Exact / inflected contiguous slice match
@@ -167,6 +172,18 @@ def extract_alignment_and_prosody(
                         best_window = list(range(i, j))
             if best_window and best_score > 0:
                 pos_after = best_window
+
+    # C. Fallback: match individual tokens if contiguous slice was interrupted
+    if not pos_after:
+        matched_indices = []
+        for j, tw in enumerate(clean_tgt):
+            if any(is_word_match(tw, fcw) for fcw in clean_fc):
+                matched_indices.append(j)
+        if matched_indices:
+            pos_after = matched_indices
+
+    # Target (Malayalam) prosody label sequence: exactly one label per token in final tgt_tokens
+    target_prosody_label_sequence = [1 if j in pos_after else 0 for j in range(len(tgt_tokens))]
 
     # 4. ആണ് (aanu) Attachment Analysis
     aanu_info = {
@@ -329,7 +346,9 @@ def extract_alignment_and_prosody(
         "original_sentence": orig_clean_sent,
         "clefted_sentence": cleft_clean_sent,
         "focused_constituent": fc_clean_str,
-        "prosody_label_sequence": prosody_label_sequence,
+        "prosody_label_sequence": target_prosody_label_sequence,
+        "target_prosody_label_sequence": target_prosody_label_sequence,
+        "source_prosody_label_sequence": source_prosody_label_sequence,
         "position_before": pos_before,
         "position_after": pos_after,
         "aanu_attachment": aanu_info,

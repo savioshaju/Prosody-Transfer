@@ -1,5 +1,6 @@
 import re
 import logging
+from typing import Optional, Tuple, List, Dict, Any
 
 from .malayalam_pipeline import MalayalamPipeline
 from .copula_pipeline import AnalysisLayer, CopulaLayer
@@ -128,87 +129,295 @@ def _extract_head_and_appositives(focus_phrase: str) -> tuple:
     return "", "", ""
 
 
-def check_cleft_eligibility(focused_word: str, focused_pos: str, sentence_pos_tags: list[str]) -> str:
+# ---------------------------------------------------------------------------
+# POSTPOSITIONS, DEGREE MODIFIERS & NUMERAL SETS
+# ---------------------------------------------------------------------------
+
+POSTPOSITIONS = frozenset({
+    "കൂടെ", "ഒപ്പം", "ശേഷം", "മുമ്പ്", "മുൻപ്", "കുറിച്ച്", "സംബന്ധിച്ച്",
+    "കൊണ്ട്", "വഴി", "ഉൾപ്പെടെ", "പകരം", "പകരമായി", "നേതൃത്വത്തിൽ",
+    "പ്രകാരം", "കാരണം", "അനുസരിച്ച്", "പോലെ", "വരെ", "എതിരെ",
+    "തുടങ്ങി", "ആയി", "ആയിട്ട്", "കുറിച്ചുള്ള", "നേരെ", "മാത്രം", "മാത്രമേ"
+})
+
+DEGREE_MODIFIERS = frozenset({
+    "വളരെ", "കൂടുതൽ", "തീരെ", "അല്പം", "ഒരല്പം", "ഏറ്റവും", "അത്യധികം",
+    "ഏറെ", "കുറച്ച്", "വല്ലാതെ", "അധികം", "തീർത്തും"
+})
+
+NUMERAL_WORDS = frozenset({
+    "ഒരു", "രണ്ട്", "മൂന്ന്", "നാല്", "അഞ്ച്", "ആറ്", "ഏഴ്", "എട്ട്", "ഒമ്പത്", "പത്ത്",
+    "നൂറ്", "ആയിരം", "ചില", "പല", "അനേകം", "ധാരാളം", "ഏതാനും", "എല്ലാ", "മുഴുവൻ"
+})
+
+STANDALONE_FREQUENCY_ADVERBS = frozenset({
+    "കുറച്ച്", "അല്പം", "ഏറെ", "കൂടുതൽ", "ചിലത്", "ഒരല്പം", "ഒരുപാട്", "ധാരാളം"
+})
+
+
+def find_focus_span_indices(tokens, focus_word: str) -> Optional[Tuple[int, int]]:
     """
-    Given the focused constituent and sentence-level POS information,
-    decide whether the sentence enters the CLEFT pipeline or the PE pipeline.
-
-    Inputs:
-      - focused_word: str
-      - focused_pos: str
-      - sentence_pos_tags: list[str]
-
-    Output:
-      - "CLEFT" or "PE"
-
-    Decision rules:
-      IF focused expression is a standalone quantifier/frequency (e.g. രണ്ടുതവണ, കുറച്ച്, അല്പം)
-              → PE
-      ELSE IF focused POS = JJ
-              → PE
-      ELSE IF sentence contains only V_VAUX (no lexical V_VM_*)
-              → PE
-      ELSE IF focused constituent is a supported nominal/adverbial constituent
-              (including compound ordinal nouns like രണ്ടാംഭാഗം)
-              AND sentence contains a lexical V_VM_*
-              → CLEFT
-      ELSE
-              → PE
+    Find the start and end token indices of the focus expression in a sequence of tokens.
+    tokens can be a list of IR Token objects or string words.
     """
+    if not tokens or not focus_word:
+        return None
+
+    clean_forms = [
+        strip_punctuation(getattr(t, "form", str(t))).strip()
+        for t in tokens
+    ]
+    clean_focus = strip_punctuation(focus_word).strip()
+    fw_list = clean_focus.split()
+    if not fw_list:
+        return None
+
+    flen = len(fw_list)
+    # 1. Exact contiguous word sequence match
+    for i in range(len(clean_forms) - flen + 1):
+        if clean_forms[i : i + flen] == fw_list:
+            return (i, i + flen - 1)
+
+    # 2. Substring/compound match on individual tokens
+    # (Focus must be contained in token, e.g. "കുലീന" inside "കുലീനകുടുംബങ്ങളിൽനിന്ന്")
+    for i, cf in enumerate(clean_forms):
+        if cf and (fw_list[0] == cf or (len(fw_list) == 1 and fw_list[0] in cf)):
+            return (i, i)
+
+    return None
+
+
+def detect_structural_status(
+    focused_word: str,
+    focused_pos: str,
+    tokens: list,
+    focus_span: Optional[Tuple[int, int]] = None,
+) -> Tuple[str, str]:
+    """
+    Structural Constituency & Island Constraint Evaluator for Malayalam.
+
+    Determines whether the focused item is:
+      1. "INDEPENDENT_CONSTITUENT": A whole maximal phrase (NP, PP, AdvP, predicative XP)
+         that possesses syntactic autonomy to undergo Clefting or Reordering.
+      2. "SUB_CONSTITUENT": An embedded element inside an NP, PP, AdvP, or VP.
+         Under Dravidian syntax (Left Branch Condition, P-stranding ban),
+         extracting it alone into a cleft pivot is ungrammatical.
+         -> Must be routed to Prosodic Emphasis (PE).
+      3. "UNCERTAIN": Structural status is ambiguous or unverified
+         -> Conservative fallback to Prosodic Emphasis (PE).
+
+    Returns:
+      (status, reason_string)
+    """
+    clean_fw = strip_punctuation(focused_word).strip()
     focused_pos_upper = (focused_pos or "").upper()
-    sentence_pos_upper = [tag.upper() for tag in (sentence_pos_tags or [])]
 
-    # 1. Quantifiers / Numerals / Frequency expressions -> Now supported via copularization (e.g. മൂന്നാണ്, കുറച്ചാണ്)
-    standalone_frequency_adverbs = (
-        "കുറച്ച്", "അല്പം", "ഏറെ", "കൂടുതൽ", "ചിലത്", "ഒരല്പം", "ഒരുപാട്", "ധാരാളം"
+    if focus_span is None and tokens:
+        focus_span = find_focus_span_indices(tokens, focused_word)
+
+    if focus_span is None or not tokens:
+        # Conservative checks when token stream context is unavailable
+        if focused_pos_upper.startswith("JJ") or clean_fw in DEGREE_MODIFIERS or clean_fw in NUMERAL_WORDS:
+            return "SUB_CONSTITUENT", f"Isolated modifier '{focused_word}' cannot be verified as an independent constituent"
+        return "UNCERTAIN", f"Focus '{focused_word}' cannot be anchored in sentence tokens"
+
+    start_idx, end_idx = focus_span
+    end_token = tokens[end_idx]
+    end_pos = getattr(end_token, "form_pos", "").upper()
+    clean_end = strip_punctuation(getattr(end_token, "form", str(end_token))).strip()
+    next_token = tokens[end_idx + 1] if end_idx + 1 < len(tokens) else None
+    next_form = strip_punctuation(getattr(next_token, "form", str(next_token))).strip() if next_token else ""
+    next_pos = getattr(next_token, "form_pos", "").upper() if next_token else ""
+
+    # =========================================================================
+    # A. SUB-CONSTITUENT DETECTION (Left Branch Condition & Island Constraints)
+    # =========================================================================
+
+    # 0. Sub-token / Word-internal focus (e.g. "കുലീന" inside "കുലീനകുടുംബങ്ങളിൽനിന്ന്")
+    # If the focus target is a strict internal element of a larger token, it cannot independently cleft or reorder.
+    if start_idx == end_idx and clean_fw != clean_end and clean_fw in clean_end:
+        return "SUB_CONSTITUENT", f"Sub-token internal focus '{clean_fw}' embedded inside token '{clean_end}'"
+
+    # 1. Noun inside PP (Postposition Stranding Ban)
+    # Malayalam strictly forbids stranding postpositions (Asher & Kumari 1997; Jayaseelan 1999).
+    if next_token is not None and (next_form in POSTPOSITIONS or next_pos == "PSP"):
+        return "SUB_CONSTITUENT", f"Embedded noun inside PP stranding postposition '{next_form}'"
+
+    # 2. Attributive Adjective inside NP (Left Branch Condition)
+    is_adj = (
+        focused_pos_upper.startswith("JJ")
+        or end_pos.startswith("JJ")
+        or any(clean_end.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ"))
+        or clean_end in ADJECTIVE_PREDICATES
     )
+    # Exclude nominalized/predicative forms (e.g. പഴയതാണ്, നല്ലതാണ്, പഴയത്)
+    is_predicative_form = any(clean_end.endswith(sfx) for sfx in ("ത്", "തു്", "ആണ്", "ാണ്", "ന്നത്", "ത്തത്", "ിച്ചത്", "ച്ചത്"))
+    if is_adj and not is_predicative_form:
+        if next_token is not None:
+            is_next_nominal = (
+                next_pos.startswith("N_")
+                or next_pos.startswith("PR_")
+                or any(next_form.endswith(sfx) for sfx in ("ൽ", "ിൽ", "ത്ത്", "നിന്ന്", "ക്ക്", "ന്", "കൾ", "കളെ", "യും", "ഉം"))
+            )
+            if is_next_nominal:
+                return "SUB_CONSTITUENT", f"Attributive adjective inside NP ('{focused_word}' modifying head '{next_form}')"
 
+    # 3. Numeral / Quantifier inside NP
     is_qt = (
         focused_pos_upper.startswith("QT")
-        or focused_pos_upper == "QT_QTO"
-        or focused_word.strip() in standalone_frequency_adverbs
-        or (len(focused_word.split()) == 1 and (focused_word.endswith("തവണ") or focused_word.endswith("പ്രാവശ്യം")))
+        or end_pos.startswith("QT")
+        or clean_end in NUMERAL_WORDS
     )
+    if is_qt and not _has_nominal_head_in_qt(focused_word):
+        if next_token is not None:
+            is_next_nominal = (
+                next_pos.startswith("N_")
+                or next_pos.startswith("PR_")
+                or next_pos.startswith("JJ")
+                or any(next_form.endswith(sfx) for sfx in ("ൽ", "ിൽ", "ത്ത്", "നിന്ന്", "ക്ക്", "ന്", "കൾ", "കളെ", "യും", "ഉം"))
+            )
+            if is_next_nominal:
+                return "SUB_CONSTITUENT", f"Numeral/quantifier inside NP ('{focused_word}' modifying '{next_form}')"
 
-    if is_qt:
-        return "CLEFT"
-
-    # 2. Adjectives -> Now supported via nominalization (e.g. പഴയതാണ്, ചുവന്നതാണ്, നല്ലതാണ്)
-    if focused_pos_upper.startswith("JJ") or focused_pos_upper == "JJ":
-        return "CLEFT"
-
-    # 3. Check for lexical main verb V_VM_* or verbal surface suffix in sentence
-    has_lexical_vm = any(
-        tag.startswith("V_VM") and not tag.startswith("V_VAUX")
-        for tag in sentence_pos_upper
-    )
-    if not has_lexical_vm:
-        # Check if sentence tokens contain finite or stative verb suffixes (-ുന്നു, -ിച്ചു, -തു, -ി, -ണം, -ും, -ാം, ഉണ്ട്, മുണ്ട്, ആണ്, ഇല്ല)
-        verb_suffixes = ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "മുണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")
-        has_lexical_vm = any(
-            any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes)
-            for w in (focused_word.split())
-        ) or any(
-            any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes)
-            for w in (sentence_pos_tags or [])
+    # 4. Genitive / Possessor inside NP
+    is_genitive = clean_end.endswith(("ന്റെ", "ുടെ", "റെ"))
+    if is_genitive and next_token is not None:
+        is_next_head = (
+            next_pos.startswith("N_")
+            or next_pos.startswith("PR_")
+            or next_pos.startswith("JJ")
         )
+        if is_next_head and next_form not in POSTPOSITIONS:
+            return "SUB_CONSTITUENT", f"Genitive possessor inside NP ('{focused_word}' modifying '{next_form}')"
 
-    clean_fw = strip_punctuation(focused_word).strip()
-    is_supported_constituent = (
-        focused_pos_upper.startswith("N_")       # N_NN, N_NNP, N_NST, etc.
-        or focused_pos_upper.startswith("PR_")   # PR_PRP, PR_PRI, etc.
-        or focused_pos_upper.startswith("DM_")   # DM_DMR, DM_DMQ
-        or focused_pos_upper in ("RB", "ADV")    # Adverbs / Temporal / Manner
-        or focused_pos_upper.startswith("V_")    # VP infinitive / action focus
-        or _has_nominal_head_in_qt(focused_word) # Compound ordinal/quantifier NPs (രണ്ടാംഭാഗം)
-        or any(clean_fw.endswith(sfx) for sfx in ("ിൽ", "ൽ", "ത്ത്", "നിന്ന്", "കൊണ്ട്", "ക്ക്", "ന്", "ന്റെ", "ുടെ", "യും", "ഉം", "ഓ", "യം", "ം", "ത്തിൽ", "എന്നോ", "മെന്നോ"))
+    # 5. Degree Modifier inside AdvP / AP
+    is_degree = clean_end in DEGREE_MODIFIERS
+    if is_degree and next_token is not None:
+        if next_pos.startswith("JJ") or next_pos in ("RB", "ADV") or any(next_form.endswith(sfx) for sfx in ("ായി", "ആയി", "ഓടെ", "ത്തിൽ")):
+            return "SUB_CONSTITUENT", f"Degree modifier inside phrase ('{focused_word}' modifying '{next_form}')"
+
+    # =========================================================================
+    # B. INDEPENDENT CONSTITUENT VERIFICATION (Maximal Projections: XP)
+    # =========================================================================
+
+    # 1. Whole PP (Focus explicitly ends with or contains postposition)
+    is_pp = (
+        clean_end in POSTPOSITIONS
+        or any(clean_end.endswith(sfx) for sfx in ("നിന്ന്", "ൽനിന്ന്", "യിൽനിന്ന്", "കൊണ്ട്", "ിലേക്ക്", "ലേക്ക്", "ങ്കൽ", "ഓട്", "യോട്", "ആൽ", "ാൽ"))
     )
+    if is_pp:
+        return "INDEPENDENT_CONSTITUENT", "Whole Postpositional Phrase (PP)"
 
-    if is_supported_constituent:
-        return "CLEFT"
+    # 2. Whole Adverbial Phrase (AdvP / Temporal / Manner)
+    is_advp = (
+        focused_pos_upper in ("RB", "ADV")
+        or end_pos in ("RB", "ADV")
+        or clean_end in TIME_WORDS
+        or any(clean_end.endswith(sfx) for sfx in ("ായി", "ആയി", "ആയിട്ട്", "ഓടെ", "പ്പോൾ", "ുമ്പോൾ", "മ്പോൾ", "തിനുശേഷം", "തിനുമുമ്പ്", "ത്തിൽ"))
+        or (len(focused_word.split()) == 1 and (clean_end.endswith("തവണ") or clean_end.endswith("പ്രാവശ്യം")))
+    )
+    if is_advp:
+        return "INDEPENDENT_CONSTITUENT", "Whole Adverbial Phrase (AdvP)"
 
-    # 5. Default fallback
-    return "PE"
+    # 3. Whole NP with Case Marking (Accusative DO, Dative IO, Locative, etc.)
+    has_case_marking = any(clean_end.endswith(sfx) for sfx in (
+        "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്"
+    ))
+    if has_case_marking and (focused_pos_upper.startswith("N_") or end_pos.startswith("N_") or focused_pos_upper.startswith("PR_") or end_pos.startswith("PR_")):
+        return "INDEPENDENT_CONSTITUENT", f"Whole Case-Marked NP ({clean_end})"
+
+    # 4. Multi-word NP with nominal head (e.g. "കുലീന കുടുംബങ്ങൾ", "രണ്ട് പുസ്തകങ്ങൾ")
+    if len(focused_word.split()) > 1:
+        if _has_nominal_head_in_qt(focused_word) or end_pos.startswith("N_") or end_pos.startswith("PR_") or any(clean_end.endswith(sfx) for sfx in ("കൾ", "ങ്ങൾ", "മാർ", "ം", "ൻ")):
+            return "INDEPENDENT_CONSTITUENT", f"Multi-word Noun Phrase with head noun '{clean_end}'"
+
+    # 5. Standalone Pronoun or Proper Noun
+    if clean_end in DEFINITE_PRONOUN_LEMMAS or focused_pos_upper in ("PR_PRP", "N_NNP"):
+        return "INDEPENDENT_CONSTITUENT", "Standalone Pronoun / Proper Noun"
+
+    # 6. Compound ordinal/quantifier NP
+    if _has_nominal_head_in_qt(focused_word):
+        return "INDEPENDENT_CONSTITUENT", "Compound Quantifier/Ordinal NP"
+
+    # 7. Predicative Adjective / Nominalized clause
+    if is_predicative_form:
+        return "INDEPENDENT_CONSTITUENT", "Predicative/Nominalized Constituent"
+
+    # 8. Single-word Nominative Subject/Object Noun not modifying next token
+    if (focused_pos_upper.startswith("N_") or end_pos.startswith("N_")) and (next_token is None or not (next_pos.startswith("N_") or next_form in POSTPOSITIONS)):
+        return "INDEPENDENT_CONSTITUENT", f"Nominative Noun '{clean_end}'"
+
+    # =========================================================================
+    # C. CONSERVATIVE FALLBACK FOR AMBIGUOUS / UNVERIFIED ITEMS
+    # =========================================================================
+    return "UNCERTAIN", f"Constituent '{focused_word}' cannot be definitively verified as an independent maximal phrase"
+
+
+def check_cleft_eligibility_structural(
+    focus_word: str,
+    focus_token=None,
+    sentence_ir=None,
+    sentence_words: list = None,
+) -> Tuple[str, str]:
+    """
+    Main Gate 1 Decision Function enforcing:
+      1. WHOLE / INDEPENDENT CONSTITUENT -> Check matrix verb -> CLEFT
+      2. EMBEDDED SUBCONSTITUENT -> PE
+      3. UNCERTAIN / AMBIGUOUS -> PE (Conservative fallback)
+    """
+    tokens = getattr(sentence_ir, "tokens", []) if sentence_ir else (sentence_words or [])
+    form_pos = getattr(focus_token, "form_pos", "") if focus_token else ""
+
+    status, reason = detect_structural_status(focus_word, form_pos, tokens)
+
+    if status == "SUB_CONSTITUENT":
+        return "PE", f"Blocked: {reason}"
+
+    if status == "UNCERTAIN":
+        return "PE", f"Conservative fallback: {reason}"
+
+    # status == "INDEPENDENT_CONSTITUENT":
+    # Verify the sentence contains a matrix lexical verb or predicate to nominalize
+    has_lexical_vm = False
+    if sentence_ir and getattr(sentence_ir, "tokens", None):
+        for t in sentence_ir.tokens:
+            p = getattr(t, "form_pos", "").upper()
+            f = strip_punctuation(getattr(t, "form", "")).strip()
+            if p.startswith("V_VM") and not p.startswith("V_VAUX"):
+                has_lexical_vm = True
+                break
+            if any(f.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")):
+                has_lexical_vm = True
+                break
+    elif sentence_words:
+        verb_suffixes = ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")
+        has_lexical_vm = any(any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes) for w in sentence_words)
+    else:
+        has_lexical_vm = True
+
+    if not has_lexical_vm:
+        return "PE", "Blocked: Sentence contains no matrix lexical verb to support cleft nominalization"
+
+    return "CLEFT", f"Allowed: {reason}"
+
+
+def check_cleft_eligibility(
+    focused_word: str,
+    focused_pos: str,
+    sentence_pos_tags: list[str] = None,
+    sentence_ir=None,
+    focus_token=None,
+) -> str:
+    """
+    Backward-compatible entry point for Gate 1.
+    """
+    route, _ = check_cleft_eligibility_structural(
+        focus_word=focused_word,
+        focus_token=focus_token,
+        sentence_ir=sentence_ir,
+        sentence_words=sentence_pos_tags,
+    )
+    return route
 
 
 # Backward-compatible alias
@@ -257,14 +466,18 @@ class CleftResult:
 
         # Compute full alignment & prosody data if a cleft/clean sentence and focus word exist
         if self.clean_sentence and self.focus_word:
+            target_sent = self.cleft_sentence or self.clean_sentence
+            target_sent = re.sub(r"</?PE>", "", target_sent).strip()
             align_data = extract_alignment_and_prosody(
                 original_sentence=self.clean_sentence,
-                clefted_sentence=self.cleft_sentence or self.clean_sentence,
+                clefted_sentence=target_sent,
                 focused_constituent=self.focus_word,
                 main_verb=self.main_verb,
                 normalized_verb=self.normalized_verb,
             )
             self.prosody_label_sequence = align_data["prosody_label_sequence"]
+            self.target_prosody_label_sequence = align_data.get("target_prosody_label_sequence", align_data["prosody_label_sequence"])
+            self.source_prosody_label_sequence = align_data.get("source_prosody_label_sequence", [])
             self.position_before = align_data["position_before"]
             self.position_after = align_data["position_after"]
             self.aanu_attachment = align_data["aanu_attachment"]
@@ -274,6 +487,8 @@ class CleftResult:
                 self.normalized_verb = align_data["nominalized_verb"]
         else:
             self.prosody_label_sequence = []
+            self.target_prosody_label_sequence = []
+            self.source_prosody_label_sequence = []
             self.position_before = []
             self.position_after = []
             self.aanu_attachment = {"attached_to": "none", "target_word": "", "attached_form": "", "position": None}
@@ -440,9 +655,15 @@ class CleftPipeline:
         # SECTION 1: CLEFT vs PE ELIGIBILITY
         # --------------------------------------------------------------
         sentence_words = [t.form for t in sentence_ir.tokens]
-        route = check_cleft_eligibility(focus_word, focus_token.form_pos, sentence_words)
+        route, route_reason = check_cleft_eligibility_structural(
+            focus_word=focus_word,
+            focus_token=focus_token,
+            sentence_ir=sentence_ir,
+            sentence_words=sentence_words,
+        )
 
         if route == "PE":
+            logger.info("Routing focus '%s' to PE: %s", focus_word, route_reason)
             return CleftResult(
                 original_sentence=clean_sentence,
                 clean_sentence=clean_sentence,
@@ -453,6 +674,7 @@ class CleftPipeline:
                 route="PE",
                 pe_sentence=clean_sentence,
                 cleft_sentence=clean_sentence,
+                error=route_reason,
             )
 
         # Morphological analysis of the focused word (for multi-word constituents, analyze the head word)
@@ -488,7 +710,12 @@ class CleftPipeline:
         # PHASE 1: CLEFT ELIGIBILITY
         # --------------------------------------------------------------
         is_eligible, constituent_type, elig_status, elig_reason = self._check_eligibility(
-            focus_word, focus_token, selected_analysis, sentence_ir
+            focus_word=focus_word,
+            focus_token=focus_token,
+            analysis=selected_analysis,
+            sentence_ir=sentence_ir,
+            structural_status="MAXIMAL_PHRASE",
+            structural_reason=route_reason,
         )
 
         if not is_eligible:
@@ -825,16 +1052,26 @@ class CleftPipeline:
 
         return ""
 
-    def _check_eligibility(self, focus_word: str, focus_token, analysis, sentence_ir=None):
+    def _check_eligibility(
+        self,
+        focus_word: str,
+        focus_token,
+        analysis,
+        sentence_ir=None,
+        structural_status: Optional[str] = None,
+        structural_reason: str = "",
+    ):
         """
         Determine whether the focused constituent is eligible for Malayalam clefting
         following the priority order:
-        1. Hard grammatical blockers (indefinite pronouns, bare predicate adjectives)
-        2. Morphological case & semantic adjunct tags (TIME, MANNER, CAUSE, LOCATION, Accusative, Dative, Locative, Instrumental)
-        3. Core syntactic arguments (Subject, Direct Object, Dative)
-        4. Definite personal pronouns
-        5. Action / VP focus (infinitives or bare verbal roots)
-        6. Safe fallback: NEEDS_VERIFICATION
+        1. Structural status (from Gate 1): Subconstituents are NEVER independently clefted
+        2. Hard grammatical blockers (indefinite pronouns)
+        3. Predicate adjectives (copular predicates)
+        4. Morphological case & semantic adjunct tags (TIME, MANNER, CAUSE, LOCATION, Accusative, Dative, Locative, Instrumental)
+        5. Core syntactic arguments (Subject, Direct Object, Dative)
+        6. Definite personal pronouns
+        7. Action / VP focus (infinitives or bare verbal roots)
+        8. Safe fallback: NEEDS_VERIFICATION
         """
         semantic_tag = self._extract_semantic_tag(focus_word, focus_token, analysis)
         dep_relation = self._extract_dependency_relation(focus_token, sentence_ir, analysis, semantic_tag)
@@ -842,16 +1079,33 @@ class CleftPipeline:
         form_pos = getattr(focus_token, "form_pos", "") if focus_token else ""
 
         # ---------------------------------------------------------
-        # 1. HARD BLOCKERS
+        # 1. STRUCTURAL CONSTITUENT CHECK (Gate 1 Status Integration)
+        # ---------------------------------------------------------
+        if structural_status is None and sentence_ir and getattr(sentence_ir, "tokens", None):
+            structural_status, structural_reason = detect_structural_status(
+                focus_word, form_pos, sentence_ir.tokens
+            )
+
+        if structural_status in ("SUBCONSTITUENT", "SUB_CONSTITUENT", "UNCERTAIN"):
+            return (
+                False,
+                "SUB_CONSTITUENT",
+                "BLOCKED",
+                structural_reason or "SUBCONSTITUENT_NOT_CLEFTED: Embedded constituents cannot be independently clefted.",
+            )
+
+        # ---------------------------------------------------------
+        # 2. HARD GRAMMATICAL BLOCKERS & PREDICATE ADJECTIVES
         # ---------------------------------------------------------
         if self._is_indefinite_or_interrogative_pronoun(analysis, focus_token):
             return False, "INDEFINITE_PRONOUN", "BLOCKED", f"Indefinite/interrogative pronoun '{focus_word}' cannot naturally be cleft-focused."
 
+        # Whole predicate adjective (cop_pred / predicate)
         if self._is_predicate_adjective(analysis, dep_relation, focus_token):
             return True, "ADJECTIVE_NOMINALIZED", "ALLOWED", ""
 
         # ---------------------------------------------------------
-        # 2. SEMANTIC ADJUNCTS (TEMPORAL, MANNER, CAUSE, LOCATION)
+        # 3. SEMANTIC ADJUNCTS (TEMPORAL, MANNER, CAUSE, LOCATION)
         # ---------------------------------------------------------
         if semantic_tag == "TEMPORAL":
             return True, "TIME", "ALLOWED", ""
@@ -869,7 +1123,7 @@ class CleftPipeline:
             return True, "EXCLUSIVE_FOCUS", "ALLOWED", ""
 
         # ---------------------------------------------------------
-        # 3. MORPHOLOGICAL CASE
+        # 4. MORPHOLOGICAL CASE
         # ---------------------------------------------------------
         if case == "accusative":
             return True, "DIRECT_OBJECT", "ALLOWED", ""
@@ -889,11 +1143,15 @@ class CleftPipeline:
         if case == "ablative":
             return True, "LOCATION", "ALLOWED", ""
 
+        # Genitive: A pre-nominal genitive possessor inside an NP cannot be independently clefted.
+        # Only allowed if functioning as an independent copular/predicate complement.
         if case == "genitive" or any(focus_word.endswith(sfx) for sfx in ("ന്റെ", "യുടെ", "ുടെ", "ിന്റെ", "്റെ")):
-            return True, "GENITIVE_POSSESSOR", "ALLOWED", ""
+            if dep_relation in ("cop_pred", "predicate"):
+                return True, "PREDICATE_GENITIVE", "ALLOWED", ""
+            return False, "GENITIVE_POSSESSOR", "BLOCKED", f"Genitive possessor '{focus_word}' cannot be independently clefted away from its head noun."
 
         # ---------------------------------------------------------
-        # 4. SYNTACTIC CORE ARGUMENTS & DEFINITE PRONOUNS
+        # 5. SYNTACTIC CORE ARGUMENTS & DEFINITE PRONOUNS
         # ---------------------------------------------------------
         if self._is_definite_personal_pronoun(analysis, focus_token):
             return True, "DEFINITE_PRONOUN", "ALLOWED", ""
@@ -908,7 +1166,7 @@ class CleftPipeline:
             return True, "DATIVE_OBJECT", "ALLOWED", ""
 
         # ---------------------------------------------------------
-        # 5. ACTION / VP FOCUS (infinitives or bare verbal roots)
+        # 6. ACTION / VP FOCUS (infinitives or bare verbal roots)
         # ---------------------------------------------------------
         if (
             focus_word.endswith("ുക")
@@ -919,21 +1177,17 @@ class CleftPipeline:
             return True, "VP_ACTION", "ALLOWED", ""
 
         # ---------------------------------------------------------
-        # 5b. ADJECTIVES & QUANTIFIERS (NOMINALIZED)
+        # 7. INDEPENDENT QUANTIFIERS / NUMERALS (as full argument heads)
         # ---------------------------------------------------------
-        if (
-            form_pos.startswith("JJ")
-            or (analysis and getattr(analysis, "pos", "") in ("ADJ", "adj"))
-            or focus_word in ADJECTIVE_PREDICATES
-            or any(focus_word.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ല്ല", "ിയ"))
-        ):
-            return True, "ADJECTIVE_NOMINALIZED", "ALLOWED", ""
-
+        # Only whole independent quantifiers (functioning as arguments / complements) are allowed.
+        # Attributive quantifiers/numerals modifying a noun are subconstituents, blocked in Step 1.
         if form_pos.startswith("QT") or focus_word in ("കുറച്ച്", "അല്പം", "ഏറെ", "കൂടുതൽ", "ധാരാളം", "മൂന്ന്", "രണ്ട്", "ഒന്ന്", "പത്ത്"):
-            return True, "QUANTIFIER_NOMINALIZED", "ALLOWED", ""
+            if dep_relation in ("nsubj", "obj", "cop_pred", "root"):
+                return True, "QUANTIFIER_NOMINALIZED", "ALLOWED", ""
+            return False, "QUANTIFIER", "BLOCKED", f"Quantifier/numeral '{focus_word}' without independent argument function cannot be clefted independently."
 
         # ---------------------------------------------------------
-        # 6. SAFE FALLBACK
+        # 8. SAFE FALLBACK
         # ---------------------------------------------------------
         return False, "UNVERIFIED_CONSTITUENT", "NEEDS_VERIFICATION", f"Constituent '{focus_word}' could not be verified by morphology or syntax."
 

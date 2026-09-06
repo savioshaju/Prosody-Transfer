@@ -1,0 +1,157 @@
+{
+  "original_sentence": "ട്രിപ്പിള് ജമ്പില് മുന് ദേശീയ ചാമ്പ്യനും തന്റെ കോച്ചുകൂടിയുമായ റോബര്ട്ട് ബോബി ജോർജ്ജിനെ അഞ്ജു വിവാഹം കഴിച്ചു.",
+  "clefted_sentence": "ട്രിപ്പിള് ജമ്പില് മുന് ദേശീയ ചാമ്പ്യനും തന്റെ കോച്ചുകൂടിയുമായ റോബര്ട്ട് ബോബി ജോർജ്ജിനെ അഞ്ജുവാണ് വിവാഹം കഴിച്ചത്.",
+  "focused_constituent": "അഞ്ജു",
+  "constituent_type": "DIRECT_OBJECT",
+  "prosody_label_sequence": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0
+  ],
+  "position_before": [
+    10
+  ],
+  "position_after": [
+    10
+  ],
+  "aanu_attachment": {
+    "attached_to": "focused_constituent",
+    "target_word": "അഞ്ജു",
+    "attached_form": "അഞ്ജുവാണ്",
+    "position": 10
+  },
+  "nominalized_verb": "കഴിച്ചത്",
+  "word_alignments": [
+    {
+      "src_index": 0,
+      "src_word": "ട്രിപ്പിള്",
+      "tgt_index": 0,
+      "tgt_word": "ട്രിപ്പിള്",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 1,
+      "src_word": "ജമ്പില്",
+      "tgt_index": 1,
+      "tgt_word": "ജമ്പില്",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 2,
+      "src_word": "മുന്",
+      "tgt_index": 2,
+      "tgt_word": "മുന്",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 3,
+      "src_word": "ദേശീയ",
+      "tgt_index": 3,
+      "tgt_word": "ദേശീയ",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 4,
+      "src_word": "ചാമ്പ്യനും",
+      "tgt_index": 4,
+      "tgt_word": "ചാമ്പ്യനും",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 5,
+      "src_word": "തന്റെ",
+      "tgt_index": 5,
+      "tgt_word": "തന്റെ",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 6,
+      "src_word": "കോച്ചുകൂടിയുമായ",
+      "tgt_index": 6,
+      "tgt_word": "കോച്ചുകൂടിയുമായ",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 7,
+      "src_word": "റോബര്ട്ട്",
+      "tgt_index": 7,
+      "tgt_word": "റോബര്ട്ട്",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 8,
+      "src_word": "ബോബി",
+      "tgt_index": 8,
+      "tgt_word": "ബോബി",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 9,
+      "src_word": "ജോർജ്ജിനെ",
+      "tgt_index": 9,
+      "tgt_word": "ജോർജ്ജിനെ",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 10,
+      "src_word": "അഞ്ജു",
+      "tgt_index": 10,
+      "tgt_word": "അഞ്ജുവാണ്",
+      "alignment_type": "FOCUSED_CONSTITUENT_MOVEMENT"
+    },
+    {
+      "src_index": 11,
+      "src_word": "വിവാഹം",
+      "tgt_index": 11,
+      "tgt_word": "വിവാഹം",
+      "alignment_type": "EXACT_MATCH"
+    },
+    {
+      "src_index": 12,
+      "src_word": "കഴിച്ചു.",
+      "tgt_index": 12,
+      "tgt_word": "കഴിച്ചത്.",
+      "alignment_type": "VERB_NOMINALIZATION"
+    }
+  ],
+  "constituent_alignments": [
+    {
+      "constituent": "അഞ്ജു",
+      "role": "FOCUSED_CONSTITUENT",
+      "src_position": [
+        10
+      ],
+      "tgt_position": [
+        10
+      ],
+      "src_form": "അഞ്ജു",
+      "tgt_form": "അഞ്ജുവാണ്"
+    },
+    {
+      "constituent": "കഴിച്ചു.",
+      "role": "NOMINALIZED_VERB",
+      "src_position": [
+        12
+      ],
+      "tgt_position": [
+        12
+      ],
+      "src_form": "കഴിച്ചു.",
+      "tgt_form": "കഴിച്ചത്."
+    }
+  ],
+  "status": "VALID",
+  "route": "CLEFT",
+  "phase": "PHASE_4_VALIDATION",
+  "error": ""
+}

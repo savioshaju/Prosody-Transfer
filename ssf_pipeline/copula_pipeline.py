@@ -69,11 +69,25 @@ def _attach_aanu_surface_core(word: str) -> str:
     # ---------------------------------------------------------------
     # Disjunctive quote / clause nominalization: -എന്നോ, -മെന്നോ → -എന്നതിനെയാണ്
     # ---------------------------------------------------------------
-    # 0a. Temporal year / numeral locative shift: [Year]-ലെ → [Year]-ലാണ്
+    # 0a. Locative & Temporal -ലെ / -ിലെ / -ത്തെ → -ലാണ് / -ത്തിലാണ്
+    #     (e.g. 2015 ലെ → 2015 ലാണ്, സ്പെയിനിലെ → സ്പെയിനിലാണ്, ഘട്ടത്തിലെ → ഘട്ടത്തിലാണ്)
     # ---------------------------------------------------------------
-    year_match = re.match(r"^(\d{1,4})[\s\-]*ലെ$", word)
+    year_match = re.match(r"^(\d{1,4})([\s\-]*)ലെ$", word)
     if year_match:
-        return f"{year_match.group(1)}-ലാണ്"
+        sep = year_match.group(2)
+        return f"{year_match.group(1)}{sep}ലാണ്"
+
+    if word == "ലെ":
+        return "ലാണ്"
+
+    if word.endswith("ത്തിലെ"):
+        return word[:-len("ത്തിലെ")] + "ത്തിലാണ്"
+    if word.endswith("ിലെ"):
+        return word[:-len("ിലെ")] + "ിലാണ്"
+    if word.endswith("ത്തെ"):
+        return word[:-len("ത്തെ")] + "ത്താണ്"
+    if word.endswith("ലെ") and not word.endswith("അല്ലെ"):
+        return word[:-len("ലെ")] + "ലാണ്"
 
     # ---------------------------------------------------------------
     # 0b. Genitive / Possessive pronominal clefting: -ന്റെ → -ന്റേതാണ്, -ുടെ → -ുടേതാണ്

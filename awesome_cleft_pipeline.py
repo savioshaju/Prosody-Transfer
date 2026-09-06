@@ -42,7 +42,7 @@ if AWESOME_ALIGN_DIR not in sys.path:
     sys.path.append(AWESOME_ALIGN_DIR)
 
 import torch
-from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_punctuation
+from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_punctuation, is_word_match
 from bhashik_focus_reorderer import BhashikFocusReorderer
 from cleft_reorderer import CleftReorderer
 from constituency_reorderer import ConstituencyReorderer
@@ -571,7 +571,7 @@ class AwesomeCleftPipeline:
         clean_ml_sent: str,
         english_focus: str,
         pre_alignment: Dict[str, Any],
-    ) -> Tuple[str, List[Dict[str, Any]], str, List[int]]:
+    ) -> Tuple[str, List[Dict[str, Any]], str, List[int], List[Dict[str, Any]], Dict[str, Any]]:
         """
         Project English focus onto Malayalam via alignment, then resolve a
         coherent Malayalam NP / predicate-complement constituent using
@@ -582,6 +582,8 @@ class AwesomeCleftPipeline:
             candidate_alignments – raw alignment debug info
             reconstructed_span   – debug span string
             focus_span_indices   – token indices into tgt_tokens for tag insertion
+            focus_candidates     – list of candidate constituent dicts
+            projection_metadata  – metadata tracking original focus vs selected constituent
         """
         src_tokens = pre_alignment.get("src_tokens", clean_en_sent.split())
         tgt_tokens = pre_alignment.get("tgt_tokens", clean_ml_sent.split())
@@ -596,7 +598,8 @@ class AwesomeCleftPipeline:
         ]
         if not en_focus_words:
             fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
-            return fallback, [], "", [], []
+            fb_meta = {"original_focus": english_focus, "selected_constituent": english_focus or fallback, "focus_type": "WHOLE", "projection": "NO"}
+            return fallback, [], "", [], [], fb_meta
 
         # 2. Identify the exact contiguous focus span in English sentence (src_tokens)
         src_clean = [strip_punctuation(w).lower() for w in src_tokens]
@@ -706,7 +709,8 @@ class AwesomeCleftPipeline:
                 })
             else:
                 fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
-                return fallback, [], "", [], []
+                fb_meta = {"original_focus": english_focus, "selected_constituent": english_focus or fallback, "focus_type": "WHOLE", "projection": "NO"}
+                return fallback, [], "", [], [], fb_meta
 
         # 4. Unique candidate target indices, excluding un-focused matrix verb and pure punctuation tokens (e.g. ':', ',', '.')
         cand_indices_set = set(
@@ -787,7 +791,8 @@ class AwesomeCleftPipeline:
                 cand_indices = [approx_tgt_idx]
             else:
                 fallback = strip_punctuation(tgt_tokens[0]) if tgt_tokens else ""
-                return fallback, candidate_alignments, "", [], []
+                fb_meta = {"original_focus": english_focus, "selected_constituent": english_focus or fallback, "focus_type": "WHOLE", "projection": "NO"}
+                return fallback, candidate_alignments, "", [], [], fb_meta
 
         # 5. Group candidates into strictly contiguous clusters
         clusters: List[List[int]] = []
@@ -1050,7 +1055,13 @@ class AwesomeCleftPipeline:
         # 7k. Trailing NP-Modifier Rightward Head Extension (e.g. വിവിധ -> അലങ്കാരമുദ്രകളില്നിന്ന്)
         if merged_end + 1 < len(tgt_tokens):
             curr_clean = strip_punctuation(tgt_tokens[merged_end])
-            if self._is_np_modifier(curr_clean) and not any(curr_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്")) and matrix_verb_idx != (merged_end + 1):
+            is_temporal_loc = (
+                re.match(r"^\d{4}$", curr_clean)
+                or (merged_end > 0 and re.match(r"^\d{4}$", strip_punctuation(tgt_tokens[merged_end - 1])) and curr_clean in ("ലെ", "ൽ", "യിൽ", "ആം"))
+                or (curr_clean in ("ലെ", "ൽ", "യിൽ") and any(re.match(r"^\d{4}$", strip_punctuation(w)) for w in tgt_tokens[merged_start:merged_end]))
+                or (len(english_focus.strip().split()) <= 2 and any(re.match(r"^\d{4}$", w) for w in english_focus.strip().split()))
+            )
+            if not is_temporal_loc and self._is_np_modifier(curr_clean) and not any(curr_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്", "ലെ", "ിലെ", "ത്തെ")) and matrix_verb_idx != (merged_end + 1):
                 next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
                 if next_clean and not self._is_verbal_token(tgt_tokens[merged_end + 1]) and not self._is_np_modifier(next_clean):
                     merged_end += 1
@@ -1060,7 +1071,7 @@ class AwesomeCleftPipeline:
         if not focus_span_indices:
             focus_span_indices = [head_anchor] if 'head_anchor' in locals() else [0]
         constituent_tokens = [
-            strip_punctuation(tgt_tokens[i]) for i in focus_span_indices
+            tgt_tokens[i].strip(",.;!?") for i in focus_span_indices
         ]
         selected_focus = " ".join(t for t in constituent_tokens if t)
         reconstructed_span = (
@@ -1119,7 +1130,69 @@ class AwesomeCleftPipeline:
         for rank, c in enumerate(focus_candidates, 1):
             c["rank"] = rank
 
-        return selected_focus, candidate_alignments, reconstructed_span, focus_span_indices, focus_candidates
+        # Determine English constituent corresponding to the selected Malayalam constituent
+        orig_focus = (english_focus or "").strip()
+        selected_constituent = orig_focus
+
+        if orig_focus and src_tokens:
+            aligned_src_indices = set()
+            for item in src_to_tgt:
+                if item.get("tgt_index") in focus_span_indices and item.get("is_lexical", True):
+                    aligned_src_indices.add(item["src_index"])
+            for item in tgt_to_src:
+                if item.get("tgt_index") in focus_span_indices and item.get("is_lexical", True):
+                    aligned_src_indices.add(item["src_index"])
+
+            # Ensure any source tokens from original focus span are included if valid
+            if focus_src_start is not None and focus_src_end is not None:
+                aligned_src_indices.update(range(focus_src_start, focus_src_end + 1))
+
+            valid_src = sorted(i for i in aligned_src_indices if i < len(src_tokens))
+            if valid_src:
+                min_s = valid_src[0]
+                max_s = valid_src[-1]
+
+                # Strip boundary prepositions/articles if they were not part of original focus
+                func_words = {"from", "by", "in", "on", "at", "to", "for", "with", "of", "about", "the", "a", "an"}
+                orig_focus_lower_words = set(orig_focus.lower().split())
+
+                while min_s < max_s and strip_punctuation(src_tokens[min_s]).lower() in func_words and strip_punctuation(src_tokens[min_s]).lower() not in orig_focus_lower_words:
+                    min_s += 1
+                while max_s > min_s and strip_punctuation(src_tokens[max_s]).lower() in func_words and strip_punctuation(src_tokens[max_s]).lower() not in orig_focus_lower_words:
+                    max_s -= 1
+
+                extracted_tokens = [strip_punctuation(src_tokens[i]) for i in range(min_s, max_s + 1)]
+                extracted_str = " ".join(t for t in extracted_tokens if t)
+                if extracted_str:
+                    selected_constituent = extracted_str
+
+        if not orig_focus:
+            orig_focus = selected_focus
+            selected_constituent = selected_focus
+
+        # Check if projection/expansion occurred
+        # e.g. original_focus: "elite", selected_constituent: "elite families" -> EMBEDDED, YES
+        # original_focus: "elite families", selected_constituent: "elite families" -> WHOLE, NO
+        is_embedded = (
+            orig_focus.strip().lower() != selected_constituent.strip().lower()
+            and (
+                orig_focus.strip().lower() in selected_constituent.strip().lower()
+                or len(selected_constituent.strip().split()) > len(orig_focus.strip().split())
+            )
+        )
+
+        projection_metadata = {
+            "original_focus": orig_focus,
+            "selected_constituent": selected_constituent,
+            "selected_constituent_ml": selected_focus,
+            "focus_type": "EMBEDDED" if is_embedded else "WHOLE",
+            "projection": "YES" if is_embedded else "NO",
+        }
+
+        if focus_candidates:
+            focus_candidates[0]["projection_metadata"] = projection_metadata
+
+        return selected_focus, candidate_alignments, reconstructed_span, focus_span_indices, focus_candidates, projection_metadata
 
     # ------------------------------------------------------------------
     # Token-index-based <FF> tag insertion (replaces string matching)
@@ -1144,13 +1217,13 @@ class AwesomeCleftPipeline:
             end = focus_span_indices[-1]
             if 0 <= start < len(ml_tokens) and 0 <= end < len(ml_tokens):
                 ml_tokens_copy = list(ml_tokens)
-                focus_part_candidate = " ".join(strip_punctuation(ml_tokens_copy[k]) for k in range(start, end + 1) if strip_punctuation(ml_tokens_copy[k]))
-                target_focus_clean = " ".join(strip_punctuation(w) for w in (clean_proj_focus or "").split() if strip_punctuation(w))
+                focus_part_candidate = " ".join(ml_tokens_copy[k] for k in range(start, end + 1))
+                target_focus_clean = clean_proj_focus or ""
+                cand_norm = re.sub(r'[\s\-\–\—\.,!\?;:\"\'“”‘’\(\)\[\]\{\}]+', '', focus_part_candidate)
+                target_norm = re.sub(r'[\s\-\–\—\.,!\?;:\"\'“”‘’\(\)\[\]\{\}]+', '', target_focus_clean)
 
-                # Verify that the index slice actually matches the projected focus string!
-                # If aligner split punctuation differently (e.g. commas), indices into ml_tokens.split()
-                # are shifted, so we fall through to Strategy 2 (sliding window text matching).
-                if not target_focus_clean or focus_part_candidate == target_focus_clean:
+                # Verify that the index slice matches the projected focus string!
+                if not target_norm or cand_norm == target_norm or cand_norm.startswith(target_norm) or target_norm.startswith(cand_norm):
                     end_tok = ml_tokens_copy[end]
                     punct = ""
                     while end_tok and end_tok[-1] in (",", ".", ";", "!", "?"):
@@ -1161,6 +1234,40 @@ class AwesomeCleftPipeline:
                     before = " ".join(ml_tokens_copy[:start])
                     focus_part = " ".join(ml_tokens_copy[start : end + 1])
                     after = " ".join(ml_tokens_copy[end + 1 :])
+                    focus_tagged = f"<FF>{focus_part}<FF>{punct}"
+                    parts = [p for p in [before, focus_tagged, after] if p]
+                    return " ".join(parts)
+
+        # Strategy 1b: Token-substring span matching in ml_tokens (handles parenthetical & hyphenated tokens)
+        if clean_proj_focus:
+            focus_words = [strip_punctuation(w) for w in clean_proj_focus.split() if strip_punctuation(w)]
+            if focus_words:
+                first_w = focus_words[0]
+                last_w = focus_words[-1]
+                start_i = None
+                end_i = None
+                for i, tok in enumerate(ml_tokens):
+                    tok_clean = strip_punctuation(tok)
+                    if first_w and (first_w in tok_clean or tok_clean in first_w):
+                        start_i = i
+                        break
+                if start_i is not None:
+                    for j in range(start_i, len(ml_tokens)):
+                        tok_clean = strip_punctuation(ml_tokens[j])
+                        if last_w and (last_w in tok_clean or tok_clean in last_w):
+                            end_i = j
+                if start_i is not None and end_i is not None and end_i >= start_i:
+                    ml_tokens_copy = list(ml_tokens)
+                    end_tok = ml_tokens_copy[end_i]
+                    punct = ""
+                    while end_tok and end_tok[-1] in (",", ".", ";", "!", "?"):
+                        punct = end_tok[-1] + punct
+                        end_tok = end_tok[:-1]
+                    ml_tokens_copy[end_i] = end_tok
+
+                    before = " ".join(ml_tokens_copy[:start_i])
+                    focus_part = " ".join(ml_tokens_copy[start_i : end_i + 1])
+                    after = " ".join(ml_tokens_copy[end_i + 1 :])
                     focus_tagged = f"<FF>{focus_part}<FF>{punct}"
                     parts = [p for p in [before, focus_tagged, after] if p]
                     return " ".join(parts)
@@ -1261,14 +1368,30 @@ class AwesomeCleftPipeline:
         reconstructed_span = ""
         focus_span_indices: List[int] = []
         focus_candidates: List[Dict[str, Any]] = []
+        projection_metadata: Dict[str, Any] = {}
 
         if english_focus and not projected_ml_focus:
-            projected_ml_focus, candidate_alignments, reconstructed_span, focus_span_indices, focus_candidates = self._select_focus_constituent(
+            (
+                projected_ml_focus,
+                candidate_alignments,
+                reconstructed_span,
+                focus_span_indices,
+                focus_candidates,
+                projection_metadata,
+            ) = self._select_focus_constituent(
                 clean_en_sent=clean_en_sent,
                 clean_ml_sent=clean_ml_sent,
                 english_focus=english_focus,
                 pre_alignment=pre_alignment,
             )
+        elif not projection_metadata:
+            projection_metadata = {
+                "original_focus": english_focus or projected_ml_focus or "",
+                "selected_constituent": english_focus or projected_ml_focus or "",
+                "selected_constituent_ml": projected_ml_focus or "",
+                "focus_type": "WHOLE",
+                "projection": "NO",
+            }
 
         if not projected_ml_focus:
             # Fallback to first word of Malayalam sentence
@@ -1355,15 +1478,39 @@ class AwesomeCleftPipeline:
                     for k in range(best_window[0], best_window[1]):
                         en_prosody_labels[k] = 1
 
+        # Compute / verify Target (Malayalam) Prosody Label Sequence for emphasized_ml_sentence
+        ml_tokens = emphasized_ml_sentence.split()
+        ml_prosody_labels = cleft_dict.get("target_prosody_label_sequence") or cleft_dict.get("prosody_label_sequence", [])
+        if len(ml_prosody_labels) != len(ml_tokens):
+            clean_ml_words = [strip_punctuation(t) for t in ml_tokens]
+            clean_fc_words = [strip_punctuation(w) for w in (clean_proj_focus or "").split() if strip_punctuation(w)]
+            fc_len = len(clean_fc_words)
+            ml_pos = []
+            if fc_len > 0:
+                for j in range(len(clean_ml_words) - fc_len + 1):
+                    if all(is_word_match(clean_ml_words[j + k], clean_fc_words[k]) for k in range(fc_len)):
+                        ml_pos = list(range(j, j + fc_len))
+                        break
+                if not ml_pos:
+                    for j, tw in enumerate(clean_ml_words):
+                        if any(is_word_match(tw, fcw) for fcw in clean_fc_words):
+                            ml_pos.append(j)
+            ml_prosody_labels = [1 if j in ml_pos else 0 for j in range(len(ml_tokens))]
+
         result = {
             "english_sentence": clean_en_sent,
             "original_malayalam_sentence": clean_ml_sent,
             "english_focus": english_focus,
             "focused_malayalam_constituent": clean_proj_focus,
             "focus_candidates": focus_candidates,
+            "focus_projection_metadata": projection_metadata,
+            "original_focus": projection_metadata.get("original_focus", english_focus),
+            "selected_constituent": projection_metadata.get("selected_constituent", clean_proj_focus),
+            "focus_type": projection_metadata.get("focus_type", "WHOLE"),
+            "projection": projection_metadata.get("projection", "NO"),
             "cleft_engine": self.cleft_engine,
             "english_prosody_label_sequence": en_prosody_labels,
-            "malayalam_prosody_label_sequence": cleft_dict.get("prosody_label_sequence", []),
+            "malayalam_prosody_label_sequence": ml_prosody_labels,
             "pre_cleft_en_to_ml_alignment": pre_alignment,
             "cleft_pipeline_output": cleft_dict,
             "emphasized_malayalam_sentence": emphasized_ml_sentence,
@@ -1379,10 +1526,11 @@ class AwesomeCleftPipeline:
         # Operates on the ORIGINAL (non-clefted) sentence.
         # Only three rules are empirically attested; all others return NOT_APPLICABLE.
         constituency_reorderer = ConstituencyReorderer()
+        effective_role = "" if (focus_type or "").upper() == "INFORMATION" else focus_type
         result["constituency_reordering"] = constituency_reorderer.reorder(
             original_sentence=clean_ml_sent,
             focused_constituent=clean_proj_focus,
-            focus_role=focus_type,  # passed from process() arg — e.g. "ADVERB", "DIRECT_OBJECT"
+            focus_role=effective_role,  # empty string enables morphological/heuristic detection
         )
 
         return result
@@ -1397,11 +1545,24 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     lines.append(f"3. English Focus Marker        : {res['english_focus'] or '—'}")
     lines.append(f"4. Selected Malayalam Focus    : {res['focused_malayalam_constituent']}")
 
+    proj_meta = res.get("focus_projection_metadata", {})
+    if proj_meta:
+        lines.append(f"   * original_focus            : {proj_meta.get('original_focus', '—')}")
+        lines.append(f"   * selected_constituent      : {proj_meta.get('selected_constituent', '—')}")
+        lines.append(f"   * focus_type                : {proj_meta.get('focus_type', '—')}")
+        lines.append(f"   * projection                : {proj_meta.get('projection', '—')}")
+
     # --- Focus Projection Candidates ---
     candidates = res.get("focus_candidates", [])
     lines.append("\n" + "-" * 80)
     lines.append("--- Malayalam Focus Candidates (Focus Projection) ---")
     lines.append("-" * 80)
+    if proj_meta:
+        lines.append(f"  Focus Projection Summary:")
+        lines.append(f"    * original_focus       : {proj_meta.get('original_focus', '—')}")
+        lines.append(f"    * selected_constituent : {proj_meta.get('selected_constituent', '—')}")
+        lines.append(f"    * focus_type           : {proj_meta.get('focus_type', '—')}")
+        lines.append(f"    * projection           : {proj_meta.get('projection', '—')}\n")
     if candidates:
         for c in candidates:
             status_tag = "[SELECTED]" if c.get("is_selected") else "[ALTERNATIVE]"
@@ -1421,17 +1582,17 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     lines.append("-" * 80)
     lines.append("--- Pre-Cleft Word Alignments (English -> Malayalam) ---")
     lines.append("-" * 80)
-    for pair in res["pre_cleft_en_to_ml_alignment"].get("aligned_pairs", []):
+    for pair in res.get("pre_cleft_en_to_ml_alignment", {}).get("aligned_pairs", []):
         lines.append(f"  {pair[0]:<25} <---> {pair[1]:<25}")
 
     # --- Clefting Pipeline Output ---
-    cleft = res["cleft_pipeline_output"]
+    cleft = res.get("cleft_pipeline_output", {})
     lines.append("\n" + "-" * 80)
     lines.append("--- Clefting Pipeline Output & Diagnostics ---")
     lines.append("-" * 80)
-    lines.append(f"  * Emphasized Malayalam Sentence             : {res['emphasized_malayalam_sentence']}")
-    lines.append(f"  * Prosody Label Sequence (Source / English)  : {res['english_prosody_label_sequence']}")
-    lines.append(f"  * Prosody Label Sequence (Target / Malayalam): {res['malayalam_prosody_label_sequence']}")
+    lines.append(f"  * Emphasized Malayalam Sentence             : {res.get('emphasized_malayalam_sentence', '—')}")
+    lines.append(f"  * Prosody Label Sequence (Source / English)  : {res.get('english_prosody_label_sequence', [])}")
+    lines.append(f"  * Prosody Label Sequence (Target / Malayalam): {res.get('malayalam_prosody_label_sequence', [])}")
     lines.append(f"  * Focus Position (Before -> After)          : {cleft.get('position_before', [])} -> {cleft.get('position_after', [])}")
 
     aanu = cleft.get("aanu_attachment", {})
@@ -1447,14 +1608,14 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     lines.append("\n" + "-" * 80)
     lines.append("--- Post-Cleft Alignment (Malayalam -> English) ---")
     lines.append("-" * 80)
-    for item in res["post_cleft_ml_to_en_alignment"].get("src_to_tgt_alignments", []):
+    for item in res.get("post_cleft_ml_to_en_alignment", {}).get("src_to_tgt_alignments", []):
         lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
 
     # --- Post-cleft English -> Malayalam Alignment ---
     lines.append("\n" + "-" * 80)
     lines.append("--- Post-Cleft Alignment (English -> Malayalam) ---")
     lines.append("-" * 80)
-    for item in res["post_cleft_en_to_ml_alignment"].get("src_to_tgt_alignments", []):
+    for item in res.get("post_cleft_en_to_ml_alignment", {}).get("src_to_tgt_alignments", []):
         lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
 
     # ═══════════════════════════════════════════════════════════
@@ -1490,17 +1651,31 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
 
     # --- Branch B: CONSTITUENT REORDERING ---
     lines.append("\n" + "-" * 80)
-    lines.append("--- BRANCH B: CONSTITUENT REORDERING (Empirical Rules Only) ---")
+    lines.append("--- BRANCH B: CONSTITUENT REORDERING (4-Level Architecture) ---")
     lines.append("-" * 80)
     cr = res.get("constituency_reordering", {})
     if cr.get("applicable"):
+        lines.append(f"  * Status                       : APPLICABLE")
         lines.append(f"  * Rule Applied                 : {cr.get('rule_applied')}")
-        lines.append(f"  * Reordered Output             : {cr.get('reordered_sentence')}")
-        lines.append(f"  * Reason                       : {cr.get('reason')}")
+        lines.append(f"  * Reordered Output (Full Text) : {cr.get('reordered_sentence')}")
+        if cr.get("movement_vector"):
+            lines.append(f"  * Movement Vector (Constituent): {cr.get('movement_vector')} (position {cr.get('position_before')} -> position {cr.get('position_after')})")
+        if cr.get("isolated_sentence_before") and cr.get("isolated_sentence_after"):
+            lines.append(f"  * Isolated S_focus (Before)    : {cr.get('isolated_sentence_before')}")
+            lines.append(f"  * Isolated S_focus (After)     : {cr.get('isolated_sentence_after')}")
+        if cr.get("constituent_sequence_before"):
+            lines.append(f"  * Constituents (Before)        : {cr.get('constituent_sequence_before')}")
+        if cr.get("constituent_sequence_after"):
+            lines.append(f"  * Constituents (After)         : {cr.get('constituent_sequence_after')}")
         if cr.get("focus_span_tokens"):
             lines.append(f"  * Focus Span Tokens            : {cr.get('focus_span_tokens')}")
+        lines.append(f"  * Reason                       : {cr.get('reason')}")
+        if cr.get("diagnostic"):
+            lines.append(f"  * Diagnostic                   : {cr.get('diagnostic')}")
     else:
         lines.append(f"  * Status                       : NOT APPLICABLE")
+        if cr.get("isolated_sentence_before"):
+            lines.append(f"  * Target Sentence Isolated     : {cr.get('isolated_sentence_before')}")
         lines.append(f"  * Reason                       : {cr.get('reason', '—')}")
         lines.append(f"  * (Only ADVERB_FRONTING, DO_FRONTING, VERB_FRONTING are attested.)")
 
