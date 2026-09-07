@@ -481,7 +481,7 @@ class VerbNormalizer:
 
             # Habitual affirmative: -ാറുണ്ട് → -ാറുള്ളത്
             if verb.endswith("ാറുണ്ട്"):
-                norm_form = verb[:-6] + "ാറുള്ളത്"
+                norm_form = verb[:-len("ാറുണ്ട്")] + "ാറുള്ളത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_HABITUAL_POS
@@ -490,7 +490,7 @@ class VerbNormalizer:
 
             # Obligative: -ണം → -േണ്ടത്
             if verb.endswith("ണം"):
-                norm_form = verb[:-2] + "േണ്ടത്"
+                norm_form = verb[:-len("ണം")] + "േണ്ടത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_OBLIGATIVE
@@ -516,7 +516,7 @@ class VerbNormalizer:
 
             # Permissive: -ാം → -ാവുന്നത്
             if verb.endswith("ാം"):
-                norm_form = verb[:-2] + "ാവുന്നത്"
+                norm_form = verb[:-len("ാം")] + "ാവുന്നത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_PERMISSIVE
@@ -543,7 +543,7 @@ class VerbNormalizer:
 
             # Present affirmative: -ുന്നു → -ുന്നത്
             if verb.endswith("ുന്നു"):
-                norm_form = verb[:-4] + "ുന്നത്"
+                norm_form = verb[:-len("ുന്നു")] + "ുന്നത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS
@@ -552,7 +552,7 @@ class VerbNormalizer:
 
             # Past affirmative: -ിച്ചു → -ിച്ചത്
             if verb.endswith("ിച്ചു"):
-                norm_form = verb[:-4] + "ിച്ചത്"
+                norm_form = verb[:-len("ിച്ചു")] + "ിച്ചത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS
@@ -561,7 +561,7 @@ class VerbNormalizer:
 
             # Past affirmative: -ച്ചു → -ച്ചത്
             if verb.endswith("ച്ചു"):
-                norm_form = verb[:-2] + "ത്"
+                norm_form = verb[:-len("ച്ചു")] + "ച്ചത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS
@@ -570,7 +570,7 @@ class VerbNormalizer:
 
             # Past affirmative: -ഞ്ഞു → -ഞ്ഞത്
             if verb.endswith("ഞ്ഞു"):
-                norm_form = verb[:-2] + "ത്"
+                norm_form = verb[:-len("ഞ്ഞു")] + "ഞ്ഞത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS
@@ -579,7 +579,7 @@ class VerbNormalizer:
 
             # Past affirmative: -ന്നു → -ന്നത്
             if verb.endswith("ന്നു"):
-                norm_form = verb[:-2] + "ത്"
+                norm_form = verb[:-len("ന്നു")] + "ന്നത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS
@@ -597,7 +597,7 @@ class VerbNormalizer:
 
             # Future affirmative: -ും → -ുന്നത്
             if verb.endswith("ും"):
-                norm_form = verb[:-2] + "ുന്നത്"
+                norm_form = verb[:-len("ും")] + "ുന്നത്"
                 result["status"] = "VALID"
                 result["normalized"] = norm_form
                 result["verb_class"] = CLASS_TENSE_POS

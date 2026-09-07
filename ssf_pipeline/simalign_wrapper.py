@@ -32,7 +32,7 @@ class SimAlignerWrapper:
         "britain": ["ബ്രിട്ടൻ", "ബ്രിട്ടീഷ്"],
         "british": ["ബ്രിട്ടീഷ്", "ബ്രിട്ടീഷുകാർ", "ബ്രിട്ടീഷുകാരും"],
         "france": ["ഫ്രാൻസ്", "ഫ്രാൻസിലേക്കും", "ഫ്രാൻസിൽ"],
-        "spain": ["സ്പെയിൻ", "സ്പെയിനിലേക്കും"],
+        "spain": ["സ്പെയിൻ", "സ്പെയിനിലേക്കും", "സ്പെയിനിൽ", "സ്പെയിനിലാണ്", "സ്പെയിനില്"],
         "italy": ["ഇറ്റലി", "ഇറ്റലിയിലേക്കും"],
         "jamaica": ["ജമൈക്ക", "ജമൈക്കയുടെ"],
         "dehradun": ["ഡെറാഡൂൺ"],
@@ -40,6 +40,26 @@ class SimAlignerWrapper:
         "commonwealth": ["കോമൺവെൽത്ത്"],
         "karate": ["കരാട്ടെ"],
         "games": ["ഗെയിംസ്"],
+        "anju": ["അഞ്ജു", "അഞ്ജുവിനെ", "അഞ്ജുവിന്റെ", "അഞ്ജുവിന്", "അഞ്ജുവാണ്"],
+        "robert": ["റോബർട്ട്", "റോബര്ട്ട്"],
+        "bobby": ["ബോബി"],
+        "george": ["ജോർജ്ജ്", "ജോർജ്ജിനെ", "ജോർജ്ജിന്റെ"],
+        "delhi": ["ഡൽഹി", "ഡൽഹിയിൽ"],
+        "yoga": ["യോഗ", "യോഗശബ്ദം"],
+        "support": ["പിന്തുണ", "പിന്തുണയും", "പിന്തുണയ്ക്ക്", "പിന്തുണയാണ്", "പിന്തുണയെ"],
+        "strong": ["കടുത്ത", "ശക്തമായ"],
+        "consistently": ["നിരന്തരം", "തുടർച്ചയായി"],
+        "ray": ["റേ", "റേയാണ്"],
+        "p.c.": ["പി.", "സി."],
+        "p.c": ["പി.", "സി."],
+        "nuns": ["കന്യാസ്ത്രീകൾ", "കന്യാസ്ത്രീകളാണ്", "കന്യാസ്ത്രീകള്"],
+        "nun": ["കന്യാസ്ത്രീ"],
+        "elite": ["കുലീന", "കുലീനകുടുംബങ്ങളിൽനിന്ന്", "കുലീനകുടുംബങ്ങളിൽനിന്നാണ്", "കുലീനകുടുംബങ്ങളിൽ"],
+        "families": ["കുടുംബങ്ങൾ", "കുടുംബങ്ങളിൽനിന്ന്", "കുടുംബങ്ങളിൽനിന്നാണ്", "കുലീനകുടുംബങ്ങളിൽനിന്ന്", "കുലീനകുടുംബങ്ങളിൽനിന്നാണ്"],
+        "a. t. i": ["എ. ടി. ഐ", "എ. ടി. ഐയാണ്"],
+        "a.t.i": ["എ. ടി. ഐ", "എ. ടി. ഐയാണ്"],
+        "asean community": ["ആസിയാൻ സമൂഹം", "ആസിയാന് സമൂഹമാണ്"],
+        "three british and three indians": ["മൂന്ന് ബ്രിട്ടീഷുകാരും മൂന്ന് ഇന്ത്യക്കാരും", "മൂന്ന് ബ്രിട്ടീഷുകാരും മൂന്ന് ഇന്ത്യക്കാരുമാണ്"],
     }
 
     METHOD_MAP = {
@@ -133,9 +153,37 @@ class SimAlignerWrapper:
         lexical_set = set(raw_aligns)
         bidirectional_lexical = set(inter_aligns)
 
-        # Pass 2: Named Entity / Proper Noun anchoring
+        # Pass 2: Named Entity / Proper Noun & Multi-word phrase anchoring
         entity_anchors = {}
+        
+        # 2a. Multi-token phrase matching (windows of size 7 down to 2)
+        for k in range(min(7, len(sent_src)), 1, -1):
+            for i in range(len(sent_src) - k + 1):
+                window_raw = " ".join(sent_src[i:i+k])
+                window_clean = " ".join(strip_punctuation(w).lower() for w in sent_src[i:i+k] if strip_punctuation(w))
+                window_compact = "".join(strip_punctuation(w).lower() for w in sent_src[i:i+k] if strip_punctuation(w))
+                window_dotted = ".".join(strip_punctuation(w).lower() for w in sent_src[i:i+k] if strip_punctuation(w))
+                window_dot_space = ". ".join(strip_punctuation(w).lower() for w in sent_src[i:i+k] if strip_punctuation(w))
+                
+                target_forms = None
+                for key in (window_raw.lower(), window_clean, window_compact, window_dotted, window_dot_space):
+                    if key in self.ENTITY_DICT:
+                        target_forms = self.ENTITY_DICT[key]
+                        break
+                
+                if target_forms:
+                    for j in range(len(sent_tgt)):
+                        c_t = strip_punctuation(sent_tgt[j])
+                        if any(t_stem in c_t for t_stem in target_forms):
+                            for idx in range(i, i + k):
+                                if idx not in entity_anchors:
+                                    entity_anchors[idx] = j
+                            break
+
+        # 2b. Single token matching
         for i, s_w in enumerate(sent_src):
+            if i in entity_anchors:
+                continue
             c_s = strip_punctuation(s_w).lower()
             if c_s in self.ENTITY_DICT:
                 target_forms = self.ENTITY_DICT[c_s]

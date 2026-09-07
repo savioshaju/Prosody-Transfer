@@ -17,13 +17,6 @@ def clean_no_punct(text):
     t = t.replace('\u0d33\u0d4d\u200d', '\u0d7e')  # ൾ
     t = t.replace('\u0d15\u0d4d\u200d', '\u0d7f')  # ൿ
 
-    # Raw virama chillus at word boundary or before whitespace
-    t = re.sub(r'\u0d33\u0d4d(?=[\s\b.,;!?\"\'“”‘’\-]|$)', '\u0d7e', t)  # ള് -> ൾ
-    t = re.sub(r'\u0d32\u0d4d(?=[\s\b.,;!?\"\'“”‘’\-]|$)', '\u0d7d', t)  # ല് -> ൽ
-    t = re.sub(r'\u0d28\u0d4d(?=[\s\b.,;!?\"\'“”‘’\-]|$)', '\u0d7b', t)  # ന് -> ൻ
-    t = re.sub(r'\u0d30\u0d4d(?=[\s\b.,;!?\"\'“”‘’\-]|$)', '\u0d7c', t)  # ര് -> ർ
-    t = re.sub(r'\u0d23\u0d4d(?=[\s\b.,;!?\"\'“”‘’\-]|$)', '\u0d7a', t)  # ണ് -> ൺ
-
     # Standardize 'ന്റെ' vs 'ന്‍റെ'
     t = t.replace('\u0d28\u0d4d\u200d\u0d31', '\u0d28\u0d4d\u0d31')
     t = t.replace('\u0d7b\u0d31', '\u0d28\u0d4d\u0d31')
@@ -162,9 +155,6 @@ def main():
             'first_mismatch_target_word': mismatch_info['first_mismatch_target_word'],
             'first_mismatch_output_word': mismatch_info['first_mismatch_output_word'],
             'output_cleft_emphasized': cleft_output,
-            'output_cleft_preverbal': d['candidate_outputs'].get('cleft_preverbal', ''),
-            'output_cleft_postverbal': d['candidate_outputs'].get('cleft_postverbal', ''),
-            'output_cleft_clause_initial': d['candidate_outputs'].get('cleft_clause_initial', ''),
             'output_constituency_reordered': d['candidate_outputs'].get('constituency_reordered', ''),
         }
 

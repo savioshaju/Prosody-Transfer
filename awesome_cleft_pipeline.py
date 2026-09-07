@@ -44,7 +44,6 @@ if AWESOME_ALIGN_DIR not in sys.path:
 import torch
 from ssf_pipeline.alignment_utils import extract_alignment_and_prosody, strip_punctuation, is_word_match
 from bhashik_focus_reorderer import BhashikFocusReorderer
-from cleft_reorderer import CleftReorderer
 from constituency_reorderer import ConstituencyReorderer
 from ssf_pipeline.bhashaverse_translator import BhashaverseTranslator
 from ssf_pipeline.krutrim_translator import KrutrimTranslator
@@ -150,7 +149,7 @@ class AwesomeAlignerWrapper:
         "britain": ["ബ്രിട്ടൻ", "ബ്രിട്ടീഷ്"],
         "british": ["ബ്രിട്ടീഷ്", "ബ്രിട്ടീഷുകാർ", "ബ്രിട്ടീഷുകാരും"],
         "france": ["ഫ്രാൻസ്", "ഫ്രാൻസിലേക്കും", "ഫ്രാൻസിൽ"],
-        "spain": ["സ്പെയിൻ", "സ്പെയിനിലേക്കും"],
+        "spain": ["സ്പെയിൻ", "സ്പെയിനിലേക്കും", "സ്പെയിനിൽ", "സ്പെയിനിലാണ്", "സ്പെയിനില്"],
         "italy": ["ഇറ്റലി", "ഇറ്റലിയിലേക്കും"],
         "jamaica": ["ജമൈക്ക", "ജമൈക്കയുടെ"],
         "dehradun": ["ഡെറാഡൂൺ"],
@@ -158,6 +157,24 @@ class AwesomeAlignerWrapper:
         "commonwealth": ["കോമൺവെൽത്ത്"],
         "karate": ["കരാട്ടെ"],
         "games": ["ഗെയിംസ്"],
+        "anju": ["അഞ്ജു", "അഞ്ജുവിനെ", "അഞ്ജുവിന്റെ", "അഞ്ജുവിന്", "അഞ്ജുവാണ്"],
+        "robert": ["റോബർട്ട്", "റോബര്ട്ട്"],
+        "bobby": ["ബോബി"],
+        "george": ["ജോർജ്ജ്", "ജോർജ്ജിനെ", "ജോർജ്ജിന്റെ"],
+        "delhi": ["ഡൽഹി", "ഡൽഹിയിൽ"],
+        "yoga": ["യോഗ", "യോഗശബ്ദം"],
+        "support": ["പിന്തുണ", "പിന്തുണയും", "പിന്തുണയ്ക്ക്", "പിന്തുണയാണ്", "പിന്തുണയെ"],
+        "strong": ["കടുത്ത", "ശക്തമായ"],
+        "consistently": ["നിരന്തരം", "തുടർച്ചയായി"],
+        "ray": ["റേ", "റേയാണ്"],
+        "p.c.": ["പി.", "സി."],
+        "p.c": ["പി.", "സി."],
+        "nuns": ["കന്യാസ്ത്രീകൾ", "കന്യാസ്ത്രീകളാണ്", "കന്യാസ്ത്രീകള്"],
+        "nun": ["കന്യാസ്ത്രീ"],
+        "elite": ["കുലീന", "കുലീനകുടുംബങ്ങളിൽനിന്ന്", "കുലീനകുടുംബങ്ങളിൽനിന്നാണ്", "കുലീനകുടുംബങ്ങളിൽ"],
+        "families": ["കുടുംബങ്ങൾ", "കുടുംബങ്ങളിൽനിന്ന്", "കുടുംബങ്ങളിൽനിന്നാണ്", "കുലീനകുടുംബങ്ങളിൽനിന്ന്", "കുലീനകുടുംബങ്ങളിൽനിന്നാണ്"],
+        "early": ["ആദ്യകാല"],
+        "modern": ["ആധുനിക"],
     }
 
     def _tokenize(self, text: str) -> List[str]:
@@ -603,14 +620,17 @@ class AwesomeCleftPipeline:
 
         # 2. Identify the exact contiguous focus span in English sentence (src_tokens)
         src_clean = [strip_punctuation(w).lower() for w in src_tokens]
+        non_empty_indices = [i for i, w in enumerate(src_tokens) if strip_punctuation(w)]
+        non_empty_src_clean = [strip_punctuation(src_tokens[i]).lower() for i in non_empty_indices]
         en_focus_clean = [strip_punctuation(w).lower() for w in english_focus.strip().split() if strip_punctuation(w)]
         focus_src_start, focus_src_end = None, None
 
         ef_len = len(en_focus_clean)
-        if ef_len > 0:
-            for i in range(len(src_clean) - ef_len + 1):
-                if [src_clean[i + k] for k in range(ef_len)] == en_focus_clean:
-                    focus_src_start, focus_src_end = i, i + ef_len - 1
+        if ef_len > 0 and len(non_empty_src_clean) >= ef_len:
+            for i in range(len(non_empty_src_clean) - ef_len + 1):
+                if [non_empty_src_clean[i + k] for k in range(ef_len)] == en_focus_clean:
+                    focus_src_start = non_empty_indices[i]
+                    focus_src_end = non_empty_indices[i + ef_len - 1]
                     break
 
         # Try hyphen-split variant if direct match failed (aligners split hyphens like 'four-square' into separate tokens)
@@ -621,10 +641,11 @@ class AwesomeCleftPipeline:
                 if strip_punctuation(w)
             ]
             ef_dh_len = len(en_focus_dehyphen)
-            if ef_dh_len > 0:
-                for i in range(len(src_clean) - ef_dh_len + 1):
-                    if [src_clean[i + k] for k in range(ef_dh_len)] == en_focus_dehyphen:
-                        focus_src_start, focus_src_end = i, i + ef_dh_len - 1
+            if ef_dh_len > 0 and len(non_empty_src_clean) >= ef_dh_len:
+                for i in range(len(non_empty_src_clean) - ef_dh_len + 1):
+                    if [non_empty_src_clean[i + k] for k in range(ef_dh_len)] == en_focus_dehyphen:
+                        focus_src_start = non_empty_indices[i]
+                        focus_src_end = non_empty_indices[i + ef_dh_len - 1]
                         en_focus_clean = en_focus_dehyphen
                         break
 
@@ -778,9 +799,25 @@ class AwesomeCleftPipeline:
                     shifted_cand_indices.add(idx - 1)
                 else:
                     shifted_cand_indices.add(idx)
-            else:
-                shifted_cand_indices.add(idx)
         cand_indices_set = shifted_cand_indices
+
+        # Expand candidate indices for dotted abbreviation sequences (e.g. എ. ടി. ഐ)
+        abbrev_expanded_indices = set(cand_indices_set)
+        for idx in cand_indices_set:
+            tok = tgt_tokens[idx]
+            if tok.endswith(".") or (len(strip_punctuation(tok)) <= 2 and idx + 1 < len(tgt_tokens) and tgt_tokens[idx + 1].endswith(".")):
+                fwd = idx + 1
+                while fwd < len(tgt_tokens):
+                    fwd_tok = tgt_tokens[fwd]
+                    clean_fwd = strip_punctuation(fwd_tok)
+                    if fwd_tok.endswith(".") or (len(clean_fwd) <= 2 and clean_fwd and not self._is_verbal_token(fwd_tok)):
+                        abbrev_expanded_indices.add(fwd)
+                        if not fwd_tok.endswith("."):
+                            break
+                        fwd += 1
+                    else:
+                        break
+        cand_indices_set = abbrev_expanded_indices
 
         cand_indices = sorted(cand_indices_set)
         if not cand_indices:
@@ -843,7 +880,16 @@ class AwesomeCleftPipeline:
 
         # 7. Merge with adjacent left clusters using NP-modifier bridging.
         merged_start = clusters[head_ci][0]
-        merged_end = head_anchor if aanu_cand_idx is not None else clusters[head_ci][-1]
+        head_tok_clean = strip_punctuation(tgt_tokens[head_anchor])
+        has_overt_case = any(head_tok_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്", "കൊണ്ട്", "ഓട്", "യോട്", "ത്തിന്", "ിന്"))
+        if has_overt_case and head_anchor < clusters[head_ci][-1]:
+            merged_end = head_anchor
+            if head_anchor + 1 < len(tgt_tokens):
+                postp = strip_punctuation(tgt_tokens[head_anchor + 1])
+                if postp in ("കൂടി", "കൂടെ", "പകരം", "മാത്രം", "വച്ച്"):
+                    merged_end = head_anchor + 1
+        else:
+            merged_end = head_anchor if aanu_cand_idx is not None else clusters[head_ci][-1]
         # Strip numeric formatting commas (e.g. 1,000 -> 1000) when checking for structural text commas
         ef_text_no_num_commas = re.sub(r'(\d),(\d)', r'\1\2', english_focus)
         has_internal_commas = (
@@ -1063,8 +1109,18 @@ class AwesomeCleftPipeline:
             )
             if not is_temporal_loc and self._is_np_modifier(curr_clean) and not any(curr_clean.endswith(sfx) for sfx in ("നിന്ന്", "നിന്നാണ്", "യിൽ", "ത്തിൽ", "ൽ", "ത്തേക്ക്", "ലേക്ക്", "ലെ", "ിലെ", "ത്തെ")) and matrix_verb_idx != (merged_end + 1):
                 next_clean = strip_punctuation(tgt_tokens[merged_end + 1])
-                if next_clean and not self._is_verbal_token(tgt_tokens[merged_end + 1]) and not self._is_np_modifier(next_clean):
-                    merged_end += 1
+        # 7l. Explicit Clause Punctuation Protection (commas/semicolons)
+        if not has_internal_commas:
+            for idx in range(merged_start, merged_end):
+                if tgt_tokens[idx].endswith(",") or tgt_tokens[idx].endswith(";"):
+                    merged_end = idx
+                    break
+
+        # 7m. Matrix Verb Capping (Focus span must not swallow the main verb to be nominalized)
+        if matrix_verb_idx is not None and merged_end >= matrix_verb_idx:
+            if matrix_verb_idx > merged_start:
+                merged_end = matrix_verb_idx - 1
+
         if merged_start > merged_end:
             merged_start = merged_end
         focus_span_indices = list(range(merged_start, merged_end + 1))
@@ -1518,9 +1574,7 @@ class AwesomeCleftPipeline:
             "post_cleft_en_to_ml_alignment": post_align_en_to_ml,
         }
 
-        # Step 5: Clause-Aware Cleft Positional Reordering
-        reorderer = CleftReorderer()
-        result["cleft_reorderings"] = reorderer.reorder(result)
+        result["cleft_reorderings"] = {}
 
         # Step 6: Parallel Constituency Reordering Branch
         # Operates on the ORIGINAL (non-clefted) sentence.

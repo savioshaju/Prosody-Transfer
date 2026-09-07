@@ -125,6 +125,14 @@ def _attach_aanu_surface_core(word: str) -> str:
         return word[:-len("ുന്നു")] + "ുന്നതാണ്"
 
     # ---------------------------------------------------------------
+    # Conjunctive suffix -ഉം / -ും (e.g. ഇന്ത്യക്കാരും -> ഇന്ത്യക്കാരുമാണ്, വളർച്ചയും -> വളർച്ചയുമാണ്)
+    # Must precede general Anusvāra resolution (ം -> മാണ്)
+    # ---------------------------------------------------------------
+    if word.endswith("ും") or word.endswith("ഉം"):
+        stem = word[:-len("ും")] if word.endswith("ും") else word[:-len("ഉം")]
+        return stem + "ുമാണ്"
+
+    # ---------------------------------------------------------------
     # 2b. ആദേശം — Anusvāra Resolution: ം → മാണ്
     # ---------------------------------------------------------------
     if word.endswith("ം"):
@@ -178,14 +186,10 @@ def _attach_aanu_surface_core(word: str) -> str:
 
     # ---------------------------------------------------------------
     # Predicate complement / adverbial suffix -ായി + ആണ് → -ായിയാണ്
-    # (e.g. വ്യക്തിയായി → വ്യക്തിയായിയാണ് via Yakāra-āgamam: vowel sign ി → insert യ്)
     # ---------------------------------------------------------------
     if word.endswith("ായി"):
         return word + "യാണ്"
 
-    # ---------------------------------------------------------------
-    # 1. ആഗമം — Vowel-based Insertion
-    # ---------------------------------------------------------------
     # 1b. വകാരാഗമം (Vakāra-āgamam): rounded/back vowels → വ insertion
     #     ഉ, ഊ, ഒ, ഓ, ഔ (+ vowel signs ു, ൂ, ൊ, ോ, ൌ, ൗ) + ആണ് → + വാണ്
     if any(word.endswith(v) for v in ("ു", "ൂ", "ൊ", "ോ", "ൌ", "ൗ", "ഉ", "ഊ", "ഒ", "ഓ", "ഔ")):

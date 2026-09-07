@@ -323,7 +323,8 @@ def detect_structural_status(
     has_case_marking = any(clean_end.endswith(sfx) for sfx in (
         "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്"
     ))
-    if has_case_marking and (focused_pos_upper.startswith("N_") or end_pos.startswith("N_") or focused_pos_upper.startswith("PR_") or end_pos.startswith("PR_")):
+    # 3. Whole NP with Case Marking (Accusative DO, Dative IO, Locative, etc.)
+    if has_case_marking:
         return "INDEPENDENT_CONSTITUENT", f"Whole Case-Marked NP ({clean_end})"
 
     # 4. Multi-word NP with nominal head (e.g. "കുലീന കുടുംബങ്ങൾ", "രണ്ട് പുസ്തകങ്ങൾ")
@@ -344,13 +345,16 @@ def detect_structural_status(
         return "INDEPENDENT_CONSTITUENT", "Predicative/Nominalized Constituent"
 
     # 8. Single-word Nominative Subject/Object Noun not modifying next token
-    if (focused_pos_upper.startswith("N_") or end_pos.startswith("N_")) and (next_token is None or not (next_pos.startswith("N_") or next_form in POSTPOSITIONS)):
-        return "INDEPENDENT_CONSTITUENT", f"Nominative Noun '{clean_end}'"
+    is_modifier_word = is_adj or is_qt or is_genitive or is_degree or clean_end in POSTPOSITIONS
+    if not is_modifier_word:
+        if next_token is None or not (next_pos.startswith("N_") or next_form in POSTPOSITIONS):
+            return "INDEPENDENT_CONSTITUENT", f"Nominative Noun '{clean_end}'"
 
     # =========================================================================
     # C. CONSERVATIVE FALLBACK FOR AMBIGUOUS / UNVERIFIED ITEMS
     # =========================================================================
     return "UNCERTAIN", f"Constituent '{focused_word}' cannot be definitively verified as an independent maximal phrase"
+
 
 
 def check_cleft_eligibility_structural(
