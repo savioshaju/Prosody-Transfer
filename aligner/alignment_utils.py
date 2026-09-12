@@ -12,6 +12,7 @@ Provides comprehensive extraction of:
 """
 
 import re
+import functools
 from typing import Dict, Any, List, Optional
 
 
@@ -35,10 +36,11 @@ def strip_punctuation(word: str) -> str:
     return re.sub(r"[\.,!\?;:\"'“”‘’\(\)\[\]\{\}\-\–\—]", "", word).strip()
 
 
-def get_word_lemmas(word: str) -> set:
+@functools.lru_cache(maxsize=10000)
+def get_word_lemmas(word: str) -> frozenset:
     clean_w = strip_punctuation(word)
     if not clean_w:
-        return set()
+        return frozenset()
     lemmas = {clean_w}
     if len(clean_w) > 2:
         lemmas.add(clean_w[:-1])
@@ -52,9 +54,10 @@ def get_word_lemmas(word: str) -> set:
                     lemmas.add(m.group(1))
         except Exception:
             pass
-    return lemmas
+    return frozenset(lemmas)
 
 
+@functools.lru_cache(maxsize=10000)
 def is_word_match(w1: str, w2: str) -> bool:
     c1 = strip_punctuation(w1)
     c2 = strip_punctuation(w2)

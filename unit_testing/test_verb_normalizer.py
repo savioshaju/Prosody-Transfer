@@ -1,6 +1,8 @@
+import os
 import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ssf_pipeline.verb_normalizer import VerbNormalizer, print_result
+from verb_norm.verb_normalizer import VerbNormalizer, print_result
 
 
 def main():

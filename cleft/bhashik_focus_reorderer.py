@@ -15,7 +15,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from indicnlp.transliterate.unicode_transliterate import UnicodeIndicTransliterator
 
 
-from ssf_pipeline.alignment_utils import extract_alignment_and_prosody
+from aligner.alignment_utils import extract_alignment_and_prosody
 
 
 def normalize_malayalam(text: str) -> str:

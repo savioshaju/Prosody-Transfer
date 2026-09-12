@@ -7,9 +7,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
-        pass
-
-from ssf_pipeline.verb_normalizer import VerbNormalizer
+        import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from verb_norm.verb_normalizer import VerbNormalizer
 
 test_suite = [
     # 1. Past -ന്നു → -ന്നത്

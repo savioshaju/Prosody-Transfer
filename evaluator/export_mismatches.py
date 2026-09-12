@@ -8,23 +8,49 @@ def clean_no_punct(text):
     if not text or not isinstance(text, str):
         return ""
     t = text
-    # 1. Normalize Malayalam chillu variants (both ZWJ-based and raw virama at word end/before space/punct)
-    # ZWJ chillus
-    t = t.replace('\u0d23\u0d4d\u200d', '\u0d7a')  # ൺ
-    t = t.replace('\u0d28\u0d4d\u200d', '\u0d7b')  # ൻ
-    t = t.replace('\u0d30\u0d4d\u200d', '\u0d7c')  # ർ
-    t = t.replace('\u0d32\u0d4d\u200d', '\u0d7d')  # ൽ
-    t = t.replace('\u0d33\u0d4d\u200d', '\u0d7e')  # ൾ
-    t = t.replace('\u0d15\u0d4d\u200d', '\u0d7f')  # ൿ
+    # 0. Normalize hyphens between digits/dates and suffixes (e.g. 2015-ൽ -> 2015ൽ, 2015-ലാണ് -> 2015ലാണ്)
+    t = re.sub(r'(\d+)\s*[-–—]\s*', r'\1', t)
 
-    # Standardize 'ന്റെ' vs 'ന്‍റെ'
+    # 1. Normalize Malayalam chillu variants (both ZWJ-based and raw virama)
+    # Standardize 'ന്റെ' vs 'ന്‍റെ' first before chillu conversion
     t = t.replace('\u0d28\u0d4d\u200d\u0d31', '\u0d28\u0d4d\u0d31')
     t = t.replace('\u0d7b\u0d31', '\u0d28\u0d4d\u0d31')
+    t = t.replace('ൻറ', 'ന്റെ').replace('ൻറെ', 'ന്റെ')
+
+    # Atomic chillu normalization (both with and without ZWJ)
+    t = re.sub(r'ല\u0d4d\u200d?|ല്\u200d?', 'ൽ', t)
+    t = re.sub(r'ള\u0d4d\u200d?|ള്\u200d?', 'ൾ', t)
+    t = re.sub(r'ര\u0d4d\u200d?|ര്\u200d?', 'ർ', t)
+    t = re.sub(r'ണ\u0d4d\u200d?|ണ്\u200d?', 'ൺ', t)
+    t = re.sub(r'ക\u0d4d\u200d|ക്\u200d', 'ൿ', t)
+    
+    # Chillu N: ZWJ chillu or virama n not followed by rra
+    t = t.replace('\u0d28\u0d4d\u200d', '\u0d7b')
+    t = re.sub(r'ന്(?![\u0d31റ])', 'ൻ', t)
+    t = re.sub(r'\u0d28\u0d4d(?![\u0d31])', '\u0d7b', t)
     
     # 2. Remove zero-width characters (ZWNJ, ZWJ, ZWSP)
     t = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', t)
+
+    # 3. Orthographic free variations in Malayalam:
+    # (a) Adverbial copula -മായാണ് / -മായാൺ vs -മായിയാണ് / -മായിയാൺ
+    t = re.sub(r'മായാ[ണ്ൺ]\b', 'മായിയാൺ', t)
+    t = re.sub(r'മായിയാ[ണ്ൺ]\b', 'മായിയാൺ', t)
+    # (b) Detached copula after alveolar/dental stops (e.g. ഇൻകോർപറേറ്റഡ് ആണ് vs ഇൻകോർപറേറ്റഡാണ്)
+    t = re.sub(r'(\w)്\s+ആ[ണ്ൺ]\b', r'\1ാൺ', t)
+    # (b2) Detached copula after front vowels with glide y (e.g. റേ ആണ് vs റേയാണ്, ഡൽഹി ആണ് vs ഡൽഹിയാണ്)
+    t = re.sub(r'([േൈീി])\s+ആ[ണ്ൺ]\b', r'\1യാൺ', t)
+    t = re.sub(r'([േൈീി])യാ[ണ്ൺ]\b', r'\1യാൺ', t)
+    # (b3) Locative adnominal vs argument copular allomorphs (-ിലെയാണ് vs -ിലാണ്, -ലെയാണ് vs -ലാണ്)
+    t = re.sub(r'ത്തിലെയാ[ണ്ൺ]\b', 'ത്തിലാൺ', t)
+    t = re.sub(r'ിലെയാ[ണ്ൺ]\b', 'ിലാൺ', t)
+    t = re.sub(r'ത്തെയാ[ണ്ൺ]\b', 'ത്താൺ', t)
+    t = re.sub(r'ലെയാ[ണ്ൺ]\b', 'ലാൺ', t)
+    t = re.sub(r'(\d+)\s+ലാ[ണ്ൺ]\b', r'\1ലാൺ', t)
+    # (c) Sandhi fusion of demonstrative pronoun + initial vowel (e.g. അത് ഉൾക്കൊള്ളുന്നത് vs അതുൾക്കൊള്ളുന്നത്)
+    t = re.sub(r'\bഅത്\s+ഉൾ', 'അതുൾ', t)
     
-    # 3. Strip all punctuation marks everywhere
+    # 4. Strip all punctuation marks everywhere
     chars = []
     for c in t:
         cat = unicodedata.category(c)
@@ -109,8 +135,9 @@ def find_first_mismatch(target_str, candidate_str):
     }
 
 def main():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    eval_json_path = os.path.join(base_dir, 'eval_results.json')
+    eval_dir = os.path.dirname(os.path.abspath(__file__))
+    workspace_dir = os.path.dirname(eval_dir)
+    eval_json_path = os.path.join(workspace_dir, 'eval_results.json')
     
     with open(eval_json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -167,8 +194,8 @@ def main():
     mismatched_df = pd.DataFrame(mismatched_list)
     all_df = pd.DataFrame(matched_list + mismatched_list).sort_values('dataset_index_0based')
 
-    mismatched_csv_path = os.path.join(base_dir, 'mismatched_sentences.csv')
-    mismatched_json_path = os.path.join(base_dir, 'mismatched_sentences.json')
+    mismatched_csv_path = os.path.join(workspace_dir, 'mismatched_sentences.csv')
+    mismatched_json_path = os.path.join(workspace_dir, 'mismatched_sentences.json')
     
     mismatched_df.to_csv(mismatched_csv_path, index=False, encoding='utf-8-sig')
     with open(mismatched_json_path, 'w', encoding='utf-8') as f:

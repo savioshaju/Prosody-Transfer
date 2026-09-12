@@ -1,10 +1,12 @@
+import os
 import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Ensure UTF-8 output encoding for Malayalam characters on Windows console
 if sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
-from ssf_pipeline.copula_pipeline import AnalysisLayer, CopulaLayer
+from cleft.copula_pipeline import AnalysisLayer, CopulaLayer
 
 def print_formatted_output(word, selected, status, mlmorph_copula, copula_path):
     if status == "UNRESOLVED":

@@ -1,8 +1,8 @@
 from .ir import Token, Sentence
-from .tokenizer import tokenize_malayalam
-from .mlmorph_utils import MlmorphAnalyzer
-from .bert_pos_utils import BertPosTagger
-from .verb_normalizer import VerbNormalizer
+from aligner.tokenizer import tokenize_malayalam
+from verb_norm.mlmorph_utils import MlmorphAnalyzer
+from aligner.bert_pos_utils import BertPosTagger
+from verb_norm.verb_normalizer import VerbNormalizer
 
 class MalayalamPipeline:
     def __init__(self):

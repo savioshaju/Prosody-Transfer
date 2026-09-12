@@ -4,8 +4,8 @@ from typing import Optional, Tuple, List, Dict, Any
 
 from .malayalam_pipeline import MalayalamPipeline
 from .copula_pipeline import AnalysisLayer, CopulaLayer
-from .verb_normalizer import VerbNormalizer
-from .alignment_utils import extract_alignment_and_prosody, strip_punctuation
+from verb_norm.verb_normalizer import VerbNormalizer
+from aligner.alignment_utils import extract_alignment_and_prosody, strip_punctuation
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,16 @@ TEMPORAL_CLAUSE_SUFFIXES = (
     "മ്പോൾ",
 )
 
-MANNER_SUFFIXES = ("ആയി", "ആയിട്ട്", "ഓടെ", "ആംവണ്ണം", "പ്രകാരം")
+MANNER_SUFFIXES = (
+    # Standard manner/instrumental postpositions
+    "ആയി", "ആയിട്ട്", "ഓടെ", "ആംവണ്ണം", "പ്രകാരം",
+    # Instrumental case suffix
+    "കൊണ്ട്", "ആലൂടെ", "ിലൂടെ", "ലൂടെ",
+    # Conjunctive participle (CVB) endings — CVBs are manner/sequential adjuncts in Malayalam
+    "ഞ്ഞ്", "ഞ്ഞ", "ിച്ച്", "ച്ച്", "ത്ത്", "്ത്", "ട്ട്",
+    # Sociative (coordination-with focus, e.g. 'in coordination with India')
+    "ഉമായി", "ോടൊപ്പം",
+)
 
 ADJECTIVE_PREDICATES = {
     "സുന്ദരം", "മനോഹരം", "നല്ല", "വലിയ", "ചെറിയ", "മിടുക്കൻ", "മിടുക്കി",
@@ -230,6 +239,23 @@ def detect_structural_status(
     next_pos = getattr(next_token, "form_pos", "").upper() if next_token else ""
 
     # =========================================================================
+    # 0. PHRASE CHUNKER MAXIMAL PROJECTION & ISLAND CHECK
+    # =========================================================================
+    try:
+        from .phrase_chunker import MalayalamPhraseChunker
+        _chunker = MalayalamPhraseChunker()
+        _enclosing = _chunker.find_enclosing_phrase(tokens, start_idx, end_idx)
+        if _enclosing:
+            if end_idx < _enclosing.end_idx:
+                # The focus is an embedded modifier leaving the right-edge head noun or postposition behind (Island constraint)
+                return "SUB_CONSTITUENT", f"Embedded subconstituent inside {_enclosing.chunk_type} '{_enclosing.text}' (Island constraint: Dravidian P-stranding/Left Branch violation)"
+            elif end_idx == _enclosing.end_idx:
+                # The focus encompasses the right-edge head noun or the entire maximal projection
+                return "INDEPENDENT_CONSTITUENT", f"Whole/Head {_enclosing.chunk_type} ('{_enclosing.text}')"
+    except Exception as e:
+        logger.debug(f"Phrase chunker evaluation: {e}")
+
+    # =========================================================================
     # A. SUB-CONSTITUENT DETECTION (Left Branch Condition & Island Constraints)
     # =========================================================================
 
@@ -308,12 +334,13 @@ def detect_structural_status(
     if is_pp:
         return "INDEPENDENT_CONSTITUENT", "Whole Postpositional Phrase (PP)"
 
-    # 2. Whole Adverbial Phrase (AdvP / Temporal / Manner)
+    # 2. Whole Adverbial Phrase (AdvP / Temporal / Manner / Converb)
     is_advp = (
         focused_pos_upper in ("RB", "ADV")
         or end_pos in ("RB", "ADV")
         or clean_end in TIME_WORDS
-        or any(clean_end.endswith(sfx) for sfx in ("ായി", "ആയി", "ആയിട്ട്", "ഓടെ", "പ്പോൾ", "ുമ്പോൾ", "മ്പോൾ", "തിനുശേഷം", "തിനുമുമ്പ്", "ത്തിൽ"))
+        or any(clean_end.endswith(sfx) for sfx in MANNER_SUFFIXES)
+        or any(clean_end.endswith(sfx) for sfx in ("ായി", "ആയി", "ആയിട്ട്", "ഓടെ", "പ്പോൾ", "ുമ്പോൾ", "മ്പോൾ", "തിനുശേഷം", "തിനുമുമ്പ്", "ത്തിൽ", "ച്ച്", "ിച്ച്", "ഞ്ഞ്", "ഞ്ഞ", "ത്ത്", "്ത്"))
         or (len(focused_word.split()) == 1 and (clean_end.endswith("തവണ") or clean_end.endswith("പ്രാവശ്യം")))
     )
     if is_advp:
@@ -321,9 +348,8 @@ def detect_structural_status(
 
     # 3. Whole NP with Case Marking (Accusative DO, Dative IO, Locative, etc.)
     has_case_marking = any(clean_end.endswith(sfx) for sfx in (
-        "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്"
-    ))
-    # 3. Whole NP with Case Marking (Accusative DO, Dative IO, Locative, etc.)
+        "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്", "ലെ", "ിലേക്ക്", "ലേക്ക്", "ആൽ", "ാൽ", "ഓട്", "യോട്"
+    )) or bool(re.search(r'\b\d{4}(?:ൽ|ലെ|ലേക്ക്)?\b', clean_end))
     if has_case_marking:
         return "INDEPENDENT_CONSTITUENT", f"Whole Case-Marked NP ({clean_end})"
 
@@ -347,7 +373,8 @@ def detect_structural_status(
     # 8. Single-word Nominative Subject/Object Noun not modifying next token
     is_modifier_word = is_adj or is_qt or is_genitive or is_degree or clean_end in POSTPOSITIONS
     if not is_modifier_word:
-        if next_token is None or not (next_pos.startswith("N_") or next_form in POSTPOSITIONS):
+        next_has_case = next_token is not None and any(next_form.endswith(sfx) for sfx in ("ൽ", "ിൽ", "ത്ത്", "നിന്ന്", "ക്ക്", "ന്", "ലേക്ക്", "ിലേക്ക്", "കൾ", "കളെ", "യും", "ഉം"))
+        if next_token is None or next_has_case or not (next_pos.startswith("N_") or next_form in POSTPOSITIONS):
             return "INDEPENDENT_CONSTITUENT", f"Nominative Noun '{clean_end}'"
 
     # =========================================================================
@@ -381,26 +408,30 @@ def check_cleft_eligibility_structural(
         return "PE", f"Conservative fallback: {reason}"
 
     # status == "INDEPENDENT_CONSTITUENT":
-    # Verify the sentence contains a matrix lexical verb or predicate to nominalize
-    has_lexical_vm = False
+    # Verify the sentence contains a matrix lexical verb or copular predicate (Moag §2.5, §5.4, §11.2)
+    predicate_suffixes = (
+        "ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "ആണ്", "ാണ്", "യാണ്",
+        "ഇല്ല", "ആയിരുന്നു", "ായിരുന്നു", "യായിരുന്നു", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും",
+        "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്", "ഉള്ളത്"
+    )
+    has_matrix_predicate = False
     if sentence_ir and getattr(sentence_ir, "tokens", None):
         for t in sentence_ir.tokens:
             p = getattr(t, "form_pos", "").upper()
             f = strip_punctuation(getattr(t, "form", "")).strip()
             if p.startswith("V_VM") and not p.startswith("V_VAUX"):
-                has_lexical_vm = True
+                has_matrix_predicate = True
                 break
-            if any(f.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")):
-                has_lexical_vm = True
+            if any(f.endswith(sfx) for sfx in predicate_suffixes):
+                has_matrix_predicate = True
                 break
     elif sentence_words:
-        verb_suffixes = ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ഉണ്ട്", "ആണ്", "ഇല്ല", "ഉണ്ടായിരുന്നു", "ഉണ്ടാകും", "ിച്ചത്", "ച്ചത്", "ത്", "ന്നത്", "ത്തത്")
-        has_lexical_vm = any(any(strip_punctuation(w).endswith(sfx) for sfx in verb_suffixes) for w in sentence_words)
+        has_matrix_predicate = any(any(strip_punctuation(w).endswith(sfx) for sfx in predicate_suffixes) for w in sentence_words)
     else:
-        has_lexical_vm = True
+        has_matrix_predicate = True
 
-    if not has_lexical_vm:
-        return "PE", "Blocked: Sentence contains no matrix lexical verb to support cleft nominalization"
+    if not has_matrix_predicate:
+        return "PE", "Blocked: Sentence contains no matrix lexical verb or copular predicate"
 
     return "CLEFT", f"Allowed: {reason}"
 
@@ -428,7 +459,7 @@ def check_cleft_eligibility(
 decide_cleft_or_pe = check_cleft_eligibility
 
 
-from .alignment_utils import extract_alignment_and_prosody
+from aligner.alignment_utils import extract_alignment_and_prosody
 
 
 class CleftResult:
@@ -510,6 +541,9 @@ class CleftResult:
             "position_after": self.position_after,
             "aanu_attachment": self.aanu_attachment,
             "nominalized_verb": self.normalized_verb,
+            "main_verb": self.main_verb,
+            "copula_form": self.copula_form or (self.aanu_attachment.get("attached_form") if getattr(self, "aanu_attachment", None) else ""),
+            "copula_path": self.copula_path,
             "word_alignments": self.word_alignments,
             "constituent_alignments": self.constituent_alignments,
             "status": self.status,
@@ -602,6 +636,88 @@ class CleftPipeline:
     def process(self, tagged_sentence: str) -> CleftResult:
         tagged_sentence = tagged_sentence.strip()
 
+        # Step 0a: Clause-Bounded Focus Scope Handling
+        # In Dravidian syntax (Jayaseelan 2001; Ross 1967 Coordinate Structure Constraint),
+        # Clefting is strictly clause-bounded to the local CP/IP domain.
+        # If the input contains coordinate clauses separated by semicolons (;) or
+        # multiple sentences separated by periods (.), clefting must operate on the
+        # specific clause containing the <FF> marker, rather than parsing across clause boundaries.
+        if ";" in tagged_sentence and "<FF>" in tagged_sentence:
+            clauses = tagged_sentence.split(";")
+            matching_clauses = [i for i, c in enumerate(clauses) if "<FF>" in c]
+            if len(matching_clauses) == 1:
+                target_idx = matching_clauses[0]
+                local_res = self.process(clauses[target_idx].strip())
+                if local_res.status == "VALID":
+                    clauses[target_idx] = " " + local_res.cleft_sentence
+                    full_cleft = ";".join(clauses).strip()
+                    full_cleft = re.sub(r"\s+", " ", full_cleft)
+                    clean_s = re.sub(r"</?FF>", "", tagged_sentence).strip()
+                    return CleftResult(
+                        original_sentence=tagged_sentence,
+                        clean_sentence=clean_s,
+                        focus_word=local_res.focus_word,
+                        focus_token=local_res.focus_token,
+                        constituent_type=local_res.constituent_type,
+                        copula_form=local_res.copula_form,
+                        copula_path=local_res.copula_path,
+                        main_verb=local_res.main_verb,
+                        normalized_verb=local_res.normalized_verb,
+                        status="VALID",
+                        phase="PHASE_4_VALIDATION",
+                        cleft_sentence=full_cleft,
+                    )
+
+        if re.search(r"\.\s+[^\d]", tagged_sentence) and "<FF>" in tagged_sentence:
+            sents = re.split(r"(?<=\.)\s+", tagged_sentence)
+            matching_sents = [i for i, s in enumerate(sents) if "<FF>" in s]
+            if len(matching_sents) == 1:
+                target_idx = matching_sents[0]
+                local_res = self.process(sents[target_idx].strip())
+                if local_res.status == "VALID":
+                    sents[target_idx] = local_res.cleft_sentence
+                    full_cleft = " ".join(sents).strip()
+                    clean_s = re.sub(r"</?FF>", "", tagged_sentence).strip()
+                    return CleftResult(
+                        original_sentence=tagged_sentence,
+                        clean_sentence=clean_s,
+                        focus_word=local_res.focus_word,
+                        focus_token=local_res.focus_token,
+                        constituent_type=local_res.constituent_type,
+                        copula_form=local_res.copula_form,
+                        copula_path=local_res.copula_path,
+                        main_verb=local_res.main_verb,
+                        normalized_verb=local_res.normalized_verb,
+                        status="VALID",
+                        phase="PHASE_4_VALIDATION",
+                        cleft_sentence=full_cleft,
+                    )
+
+        if re.search(r":\s+", tagged_sentence) and "<FF>" in tagged_sentence:
+            clauses = re.split(r":\s+", tagged_sentence)
+            matching_clauses = [i for i, c in enumerate(clauses) if "<FF>" in c]
+            if len(matching_clauses) == 1:
+                target_idx = matching_clauses[0]
+                local_res = self.process(clauses[target_idx].strip())
+                if local_res.status == "VALID":
+                    clauses[target_idx] = local_res.cleft_sentence
+                    full_cleft = " : ".join(clauses).strip()
+                    clean_s = re.sub(r"</?FF>", "", tagged_sentence).strip()
+                    return CleftResult(
+                        original_sentence=tagged_sentence,
+                        clean_sentence=clean_s,
+                        focus_word=local_res.focus_word,
+                        focus_token=local_res.focus_token,
+                        constituent_type=local_res.constituent_type,
+                        copula_form=local_res.copula_form,
+                        copula_path=local_res.copula_path,
+                        main_verb=local_res.main_verb,
+                        normalized_verb=local_res.normalized_verb,
+                        status="VALID",
+                        phase="PHASE_4_VALIDATION",
+                        cleft_sentence=full_cleft,
+                    )
+
         # Step 0: Focus tag extraction
         matches = FF_PATTERN.findall(tagged_sentence)
 
@@ -677,7 +793,7 @@ class CleftPipeline:
                 phase="ROUTING_SECTION_1",
                 route="PE",
                 pe_sentence=clean_sentence,
-                cleft_sentence=clean_sentence,
+                cleft_sentence="",
                 error=route_reason,
             )
 
@@ -813,9 +929,15 @@ class CleftPipeline:
         # --------------------------------------------------------------
         # PHASE 3: CLEFT STRUCTURE & COPULA GENERATION (Adding ആണ്)
         # --------------------------------------------------------------
-        year_match = re.match(r"^(\d{1,4})[\s\-]*ലെ$", focus_word.strip())
+        year_match = re.match(r"^(\d{1,4})([\s\-]*)ലെ$", focus_word.strip())
         if year_match:
-            copula_form = f"{year_match.group(1)}-ലാണ്"
+            sep = year_match.group(2)
+            if not sep:
+                # Direct suffixation without space: e.g. 2003ലെ -> 2003ലെയാണ്
+                copula_form = f"{year_match.group(1)}ലെയാണ്"
+            else:
+                # Detached particle with space: e.g. 2015 ലെ -> 2015 ലാണ്
+                copula_form = f"{year_match.group(1)}{sep}ലാണ്"
             _preserved = "YES"
             copula_path = "temporal-year-locative"
         else:
@@ -858,30 +980,67 @@ class CleftPipeline:
         # --------------------------------------------------------------
         # PHASE 4: VALIDATION & SENTENCE ASSEMBLY
         # --------------------------------------------------------------
-        # 1. Substitute the normalized main verb first
-        cleft_sentence = clean_sentence
+        # PHASE 4: VALIDATION & SENTENCE ASSEMBLY
+        # --------------------------------------------------------------
+        # 1. Substitute the copula-attached focus constituent directly at the tagged position.
+        if re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്ന്", tagged_sentence):
+            cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്ന്", r"\1 എന്നാണ്", tagged_sentence, count=1)
+        elif re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്നു്", tagged_sentence):
+            cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്നു്", r"\1 എന്നാണ്", tagged_sentence, count=1)
+        elif "<FF>" in tagged_sentence:
+            cleft_sentence = re.sub(r"<FF>.*?(?:</FF>|<FF>)", copula_form, tagged_sentence, count=1)
+        else:
+            cleft_sentence = self._substitute(clean_sentence, focus_word, copula_form)
+
+        # Remove any residual <FF> tags
+        cleft_sentence = re.sub(r"</?FF>", "", cleft_sentence).strip()
+
+        # 2. Substitute the normalized main verb
         if main_verb and normalized_verb is not None and main_verb != focus_word and main_verb != copula_form:
             cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
 
-        # 2. Substitute the copula-attached focus constituent
-        # When focus constituent ends in a modal/clausal verb (e.g. വിൽക്കാം) and is followed by 'എന്ന്',
-        # the clausal complement transforms into 'എന്ന്' -> 'എന്നതിനെയാണ്'.
-        comp_pattern = focus_word + " എന്ന്"
-        focus_tokens_list = focus_word.strip().split()
-        last_tok = focus_tokens_list[-1] if focus_tokens_list else ""
-        if comp_pattern in cleft_sentence and any(last_tok.endswith(sfx) for sfx in ("ാം", "ഉണ്ട്", "വേണം", "കഴിയും", "പറ്റും", "സാധിക്കും")):
-            cleft_sentence = cleft_sentence.replace(comp_pattern, focus_word + " എന്നതിനെയാണ്", 1)
-            copula_form = focus_word + " എന്നതിനെയാണ്"
-        else:
-            cleft_sentence = self._substitute(cleft_sentence, focus_word, copula_form)
-
-        # If copula_form already carries the cleft copula, strip any orphaned background detached 'ആണ്'
-        if copula_form.endswith("ആണ്") or copula_form.endswith("ാണ്"):
-            cleft_sentence = re.sub(r"(?<!\S)ആണ്(?!\S)", "", cleft_sentence)
+        # If decopularizing a copular predicate, ensure no trailing duplicate orphaned copula at sentence end
+        if is_copular_pred:
+            cleft_sentence = re.sub(r"\s+ആണ്([.,!?;:]*)$", r"\1", cleft_sentence)
 
         # Normalize whitespace and punctuation
         cleft_sentence = re.sub(r"\s+([.,!?;:])", r"\1", cleft_sentence)
         cleft_sentence = re.sub(r"\s+", " ", cleft_sentence).strip()
+
+        # 3. Strict Cleft Completion Validation:
+        # Cleft will complete ONLY if 'aanu' is attached to the phrase AND the verb is normalised!
+        copula_suffixes = ("ാണ്", "ആണ്", "യാണ്", "മായാണ്", "ാൺ", "വാൺ", "യായിട്ടാണ്", "ആയിട്ടാണ്")
+        has_copula = any(cop in copula_form for cop in copula_suffixes) and (
+            copula_form in cleft_sentence or any(cop in cleft_sentence for cop in copula_suffixes)
+        )
+
+        if is_copular_pred or not main_verb:
+            has_norm_verb = True
+        else:
+            has_norm_verb = bool(
+                normalized_verb and normalized_verb != main_verb and (
+                    normalized_verb in cleft_sentence or
+                    any(normalized_verb.endswith(sfx) for sfx in ("ത്", "തു്", "ച്ചത്", "ട്ടത്", "ന്നത്", "ത്തത്", "ുന്നത്"))
+                )
+            )
+
+        if not (has_copula and has_norm_verb):
+            logger.warning("Cleft incomplete: copula_attached=%s, verb_normalized=%s", has_copula, has_norm_verb)
+            return CleftResult(
+                original_sentence=tagged_sentence,
+                clean_sentence=clean_sentence,
+                focus_word=focus_word,
+                focus_token=focus_token,
+                constituent_type=constituent_type,
+                copula_form=copula_form,
+                copula_path=copula_path,
+                main_verb=main_verb,
+                normalized_verb=normalized_verb,
+                status="CLEFT_FAILED",
+                phase="PHASE_4_VALIDATION",
+                cleft_sentence="",
+                error=f"Cleft incomplete: copula_attached={has_copula}, verb_normalized={has_norm_verb}",
+            )
 
         return CleftResult(
             original_sentence=tagged_sentence,
@@ -1038,11 +1197,20 @@ class CleftPipeline:
             return "TEMPORAL"
 
         # 2. Manner semantics
+        # CVBs (conjunctive/converbal forms) in Malayalam are manner/sequential adjuncts.
+        # Any FST-tagged <cvb> that is NOT a simultaneous converbal (those are TEMPORAL above)
+        # should be classified as MANNER so they pass eligibility and are not deferred as VP_ACTION.
+        is_cvb_manner = (
+            ("<cvb>" in raw or "<cvb-adv-part" in raw)
+            and "<cvb-adv-part-simul>" not in raw
+            and "<cvb-adv-part-past-simul>" not in raw
+        )
         if (
             any(focus_word.endswith(sfx) for sfx in MANNER_SUFFIXES)
             or form_pos == "RB"
             or getattr(analysis, "pos", "") in ("ADV", "adv")
             or focus_word.endswith("ത്തിൽ")
+            or is_cvb_manner
         ):
             return "MANNER"
 
@@ -1244,17 +1412,64 @@ class CleftPipeline:
         return False
 
     def _substitute(self, sentence: str, target: str, replacement: str) -> str:
-        if target in sentence:
-            return sentence.replace(target, replacement, 1)
+        # In head-final Malayalam syntax, predicates and matrix targets occur towards the end;
+        # using rfind ensures the predicate at clause end is replaced rather than an earlier identical noun/root.
+        r_idx = sentence.rfind(target)
+        if r_idx != -1:
+            return sentence[:r_idx] + replacement + sentence[r_idx + len(target):]
         clean_target = strip_punctuation(target)
-        if clean_target and clean_target in sentence:
-            return sentence.replace(clean_target, replacement, 1)
+        if clean_target:
+            r_idx = sentence.rfind(clean_target)
+            if r_idx != -1:
+                return sentence[:r_idx] + replacement + sentence[r_idx + len(clean_target):]
 
-        # Multi-word substitution matching internal punctuation/commas (e.g. 'പാദമെന്നോ, ഏറ്റവും താഴത്തെ ഭാഗമെന്നോ, അടിത്തട്ട് എന്നോ')
-        words = [re.escape(strip_punctuation(w)) for w in (target or "").split() if strip_punctuation(w)]
+        def _norm_c(t: str) -> str:
+            if not t:
+                return ""
+            t = re.sub(r'ല\u0d4d\u200d?|ല്\u200d?', 'ൽ', t)
+            t = re.sub(r'ള\u0d4d\u200d?|ളല്\u200d?', 'ൾ', t)
+            t = re.sub(r'ന\u0d4d\u200d?|ന്\u200d?', 'ൻ', t)
+            t = re.sub(r'ര\u0d4d\u200d?|ര്\u200d?', 'ർ', t)
+            t = re.sub(r'ണ\u0d4d\u200d?|ണ്\u200d?', 'ൺ', t)
+            return re.sub(r'[\u200b\u200c\u200d\ufeff]', '', t)
+
+        # Token-window matching (robust to Chillu encoding variations and character length shifts)
+        ml_toks = sentence.split()
+        tg_toks = target.split()
+        if tg_toks and len(tg_toks) <= len(ml_toks):
+            tg_norm = [_norm_c(strip_punctuation(w)) for w in tg_toks]
+            for i in range(len(ml_toks) - len(tg_toks) + 1):
+                window_norm = [_norm_c(strip_punctuation(w)) for w in ml_toks[i : i + len(tg_toks)]]
+                if window_norm == tg_norm:
+                    last_orig = ml_toks[i + len(tg_toks) - 1]
+                    punct = ""
+                    while last_orig and last_orig[-1] in (",", ".", ";", "!", "?"):
+                        punct = last_orig[-1] + punct
+                        last_orig = last_orig[:-1]
+                    
+                    before = ml_toks[:i]
+                    after = ml_toks[i + len(tg_toks):]
+                    res_tokens = before + [replacement + punct] + after
+                    return " ".join(res_tokens)
+
+        norm_sent = _norm_c(sentence)
+        norm_target = _norm_c(target)
+        if norm_target in norm_sent:
+            pos = norm_sent.find(norm_target)
+            if pos != -1:
+                return sentence[:pos] + replacement + sentence[pos + len(target):]
+
+        norm_clean_target = _norm_c(clean_target)
+        if norm_clean_target and norm_clean_target in norm_sent:
+            pos = norm_sent.find(norm_clean_target)
+            if pos != -1:
+                return sentence[:pos] + replacement + sentence[pos + len(clean_target):]
+
+        # Multi-word substitution matching internal punctuation/commas
+        words = [re.escape(_norm_c(strip_punctuation(w))) for w in (target or "").split() if strip_punctuation(w)]
         if words:
             pattern = r"\s*[\,\.\?\!\;\:\-]*\s*".join(words)
-            if re.search(pattern, sentence):
+            if re.search(pattern, norm_sent):
                 return re.sub(pattern, replacement, sentence, count=1)
 
         return sentence

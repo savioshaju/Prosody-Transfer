@@ -4,19 +4,20 @@ import time
 import os
 import sys
 import pandas as pd
-from awesome_cleft_pipeline import AwesomeCleftPipeline
+eval_dir = os.path.dirname(os.path.abspath(__file__))
+workspace_dir = os.path.dirname(eval_dir)
+if workspace_dir not in sys.path:
+    sys.path.insert(0, workspace_dir)
+
+from cleft.awesome_cleft_pipeline import AwesomeCleftPipeline
+try:
+    from evaluator.export_mismatches import clean_no_punct
+except ImportError:
+    from export_mismatches import clean_no_punct
+
 
 def normalize_text(text):
-    if not text or not isinstance(text, str):
-        return ""
-    # Remove zero-width characters, extra spaces, trailing/leading punctuation
-    t = text.strip()
-    t = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', t)
-    t = re.sub(r'\s+', ' ', t)
-    # Remove common sentence-ending punctuation for soft match comparison
-    t_clean = re.sub(r'[.,;!?\"\'“”‘’]+$', '', t).strip()
-    t_clean = re.sub(r'^[.,;!?\"\'“”‘’]+', '', t_clean).strip()
-    return t_clean
+    return clean_no_punct(text)
 
 def main():
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -25,11 +26,15 @@ def main():
         except Exception:
             pass
 
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(base_dir, "Dataset-gen - Sheet1.csv")
+    eval_dir = os.path.dirname(os.path.abspath(__file__))
+    workspace_dir = os.path.dirname(eval_dir)
+    if workspace_dir not in sys.path:
+        sys.path.insert(0, workspace_dir)
+
+    csv_path = os.path.join(workspace_dir, "Synthetic_data - Sheet1.csv")
     df = pd.read_csv(csv_path)
 
-    print(f"Starting evaluation on {len(df)} rows from {csv_path} with SimAlign (itermax)...")
+    print(f"Starting evaluation on {len(df)} rows from {csv_path} with SimAlign (itermax)...", flush=True)
     pipeline = AwesomeCleftPipeline(aligner_type="simalign", aligner_method="itermax")
 
     results = []
@@ -55,14 +60,23 @@ def main():
             const_app = bool(const_reord.get('applicable', False))
             const_sent = const_reord.get('reordered_sentence', '') if const_app else None
 
-            # Cleft done check
-            cleft_done = bool(cleft_dict.get('route') == 'CLEFT' or (cleft_out and cleft_out != mal and '<PE>' not in cleft_out))
+            # Strict Cleft completion: must have aanu attached AND verb normalised
+            status = cleft_dict.get('status', '')
+            copula_form = cleft_dict.get('copula_form', '') or cleft_dict.get('aanu_attachment', {}).get('attached_form', '')
+            norm_verb = cleft_dict.get('nominalized_verb', '')
+            main_verb = cleft_dict.get('main_verb', '')
+            has_copula = any(cop in copula_form for cop in ("ാണ്", "ആണ്", "യാണ്", "മായാണ്", "ാൺ", "വാൺ", "ആയിട്ടാണ്")) or any(cop in cleft_out for cop in ("ാണ്", "ആണ്", "യാണ്", "മായാണ്", "ാൺ", "വാൺ", "ആയിട്ടാണ്"))
+            has_norm_verb = bool(
+                norm_verb and norm_verb != main_verb and any(norm_verb.endswith(sfx) for sfx in ("ത്", "തു്", "ച്ചത്", "ട്ടത്", "ന്നത്", "ത്തത്", "ുന്നത്"))
+            ) or (not main_verb and has_copula) or bool(norm_verb and any(norm_verb.endswith(sfx) for sfx in ("ത്", "തു്", "ച്ചത്", "ട്ടത്", "ന്നത്", "ത്തത്", "ുന്നത്")))
+
+            cleft_done = bool(status == 'VALID' and cleft_out and cleft_out != mal and '<PE>' not in cleft_out and has_copula and has_norm_verb)
             
             # Reordering check
             const_reord_done = const_app and bool(const_sent)
 
             candidate_outputs = {}
-            if cleft_out:
+            if cleft_done:
                 candidate_outputs['cleft_emphasized'] = cleft_out
             if const_sent:
                 candidate_outputs['constituency_reordered'] = const_sent
@@ -126,14 +140,15 @@ def main():
                 'proj_focus': '',
             })
 
-        if (idx + 1) % 10 == 0 or idx == len(df) - 1:
-            print(f"Processed {idx + 1}/{len(df)} rows in {time.time() - t0:.1f}s")
+        eval_json_path = os.path.join(workspace_dir, 'eval_results.json')
+        with open(eval_json_path, 'w', encoding='utf-8') as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+
+        match_tag = "MATCH!" if norm_match_found else "MISMATCH"
+        print(f"[{idx + 1}/{len(df)}] Row {idx + 1}: {match_tag} ({time.time() - t0:.1f}s) - Proj: '{res.get('focused_malayalam_constituent', '')}'", flush=True)
 
     # Save to JSON and CSV
-    eval_json_path = os.path.join(base_dir, 'eval_results.json')
-    eval_csv_path = os.path.join(base_dir, 'eval_results.csv')
-    with open(eval_json_path, 'w', encoding='utf-8') as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
+    eval_csv_path = os.path.join(workspace_dir, 'eval_results.csv')
 
     flat_records = []
     for r in results:

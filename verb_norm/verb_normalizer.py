@@ -403,6 +403,35 @@ class VerbNormalizer:
             "failure_reason"      : "",
         }
 
+        # High-priority surface rules for quotative complement matrix verbs
+        # e.g., ഉണ്ടെന്ന് -> ഉണ്ടെന്നാണ്, ആണെന്ന് -> ആണെന്നാണ്, എന്ന് -> എന്നാണ്
+        if verb.endswith("ഉണ്ടെന്ന്") or verb.endswith("ഉണ്ടെന്നു്"):
+            sfx_len = len("ഉണ്ടെന്നു്") if verb.endswith("ഉണ്ടെന്നു്") else len("ഉണ്ടെന്ന്")
+            norm_form = verb[:-sfx_len] + "ഉണ്ടെന്നാണ്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><quotative><copula>"
+            return result
+
+        if verb.endswith("ആണെന്ന്") or verb.endswith("ആണെന്നു്"):
+            sfx_len = len("ആണെന്നു്") if verb.endswith("ആണെന്നു്") else len("ആണെന്ന്")
+            norm_form = verb[:-sfx_len] + "ആണെന്നാണ്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><quotative><copula>"
+            return result
+
+        if verb.endswith("എന്ന്") or verb.endswith("എന്നു്"):
+            sfx_len = len("എന്നു്") if verb.endswith("എന്നു്") else len("എന്ന്")
+            norm_form = verb[:-sfx_len] + "എന്നാണ്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><quotative><copula>"
+            return result
+
         # High-priority surface rules for existential/stative compound verbs
         if verb.endswith("ഉണ്ട്"):
             norm_form = verb[:-len("ഉണ്ട്")] + "ഉള്ളത്"
