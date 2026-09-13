@@ -32,7 +32,8 @@ POSTPOSITIONS = frozenset({
 
 PP_SUFFIXES = (
     "ൽനിന്ന്", "യിൽനിന്ന്", "ിൽനിന്ന്", "നിന്ന്", "നിന്നും", "ൽനിന്നും", "യിൽനിന്നും",
-    "ലേക്ക്", "ിലേക്ക്", "ത്തേക്ക്", "ത്തക്ക്", "വരെ", "കൂടെ", "ശേഷം", "കൊണ്ട്", "പ്രകാരം"
+    "ലേക്ക്", "ിലേക്ക്", "ത്തേക്ക്", "ത്തക്ക്", "വരെ", "കൂടെ", "ശേഷം", "കൊണ്ട്", "പ്രകാരം",
+    "ലൂടെ", "ിലൂടെ", "ആലൂടെ", "ഉമായി", "ുമായി"
 )
 
 DEGREE_MODIFIERS = frozenset({
@@ -50,7 +51,7 @@ CASE_SUFFIXES = (
     "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്",
     "ൽ", "ിൽ", "ത്തിൽ", "ത്ത്", "ലെ", "ിലേക്ക്", "ലേക്ക്",
     "ആൽ", "ാൽ", "ത്തിനാൽ", "ഇനാൽ", "ഓട്", "യോട്", "നിന്ന്", "ൽനിന്ന്", "യിൽനിന്ന്",
-    "ന്റെ", "ുടെ", "ിന്റെ", "്റെ"
+    "ന്റെ", "ുടെ", "ിന്റെ", "്റെ", "ലൂടെ", "ിലൂടെ", "ആലൂടെ", "ഉമായി", "ുമായി"
 )
 
 
@@ -103,9 +104,13 @@ class MalayalamPhraseChunker:
         """
         Segment a token list (strings or IR Token objects) into complete phrases.
         """
-        token_forms = [
-            strip_punctuation(getattr(t, "form", str(t))).strip()
+        raw_token_forms = [
+            getattr(t, "form", str(t))
             for t in tokens
+        ]
+        token_forms = [
+            strip_punctuation(raw_f).strip()
+            for raw_f in raw_token_forms
         ]
         token_poses = [
             getattr(t, "form_pos", "").upper()
@@ -154,7 +159,7 @@ class MalayalamPhraseChunker:
                     i += 2
                     continue
 
-            if form in TIME_WORDS or any(form.endswith(sfx) for sfx in ("പ്പോൾ", "ുമ്പോൾ", "മ്പോൾ", "തിനുശേഷം", "തിനുമുമ്പ്", "ആയി", "ആയിട്ട്", "ഓടെ")):
+            if form in TIME_WORDS or any(form.endswith(sfx) for sfx in ("പ്പോൾ", "ുമ്പോൾ", "മ്പോൾ", "തിനുശേഷം", "തിനുമുമ്പ്", "ആയി", "ആയിട്ട്", "ഓടെ", "വിധം", "മാതിരി", "പോലെ")):
                 chunks.append(PhraseChunk("AdvP", i, i, [form], form, c_id))
                 i += 1
                 continue
@@ -172,10 +177,22 @@ class MalayalamPhraseChunker:
                     i = curr
                     break
 
+                # Punctuation boundary terminates phrase immediately (e.g. commas, semicolons)
+                curr_raw = raw_token_forms[curr]
+                has_punct = any(p in curr_raw for p in (",", ";", ":", "—", "–"))
+                next_raw = raw_token_forms[curr + 1] if curr + 1 < n else ""
+                next_is_punct = bool(next_raw and not strip_punctuation(next_raw).strip() and any(p in next_raw for p in (",", ";", ":", "—", "–")))
+
                 # Suffix-based PP detection: words ending in -ൽനിന്ന്, -ലേക്ക്, etc.
                 has_pp_suffix = any(c_form.endswith(sfx) for sfx in PP_SUFFIXES)
                 has_case = any(c_form.endswith(sfx) for sfx in CASE_SUFFIXES)
                 has_pp_word = curr + 1 < n and token_forms[curr + 1] in POSTPOSITIONS
+
+                if has_punct or next_is_punct:
+                    c_type = "PP" if (has_pp_suffix or has_pp_word) else "NP"
+                    chunks.append(PhraseChunk(c_type, start_np, curr, token_forms[start_np : curr + 1], " ".join(token_forms[start_np : curr + 1]), c_id))
+                    i = curr + 1
+                    break
 
                 # Left-branch modifiers (genitive, adjectival participle, numeral) continue the phrase
                 is_genitive = c_form.endswith(("ന്റെ", "ുടെ", "ിന്റെ", "്റെ"))

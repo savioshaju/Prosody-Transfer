@@ -433,8 +433,18 @@ class VerbNormalizer:
             return result
 
         # High-priority surface rules for existential/stative compound verbs
+        # 1. Standalone / independent vowel உண்டு -> ഉള്ളത്
         if verb.endswith("ഉണ്ട്"):
             norm_form = verb[:-len("ഉണ്ട്")] + "ഉള്ളത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-present><n><deriv>"
+            return result
+
+        # 2. Bound perfective auxiliary suffix with vowel sign U (-ിട്ടുണ്ട്, -ട്ടുണ്ട്, -ുന്നുണ്ട് -> -ിട്ടുള്ളത്, -ട്ടുള്ളത്, -ുന്നുള്ളത്)
+        if verb.endswith("\u0D41\u0D23\u0D4D\u0D1F\u0D4D"):
+            norm_form = verb[:-len("\u0D41\u0D23\u0D4D\u0D1F\u0D4D")] + "\u0D41\u0D33\u0D4D\u0D33\u0D24\u0D4D"
             result["status"] = "VALID"
             result["normalized"] = norm_form
             result["verb_class"] = CLASS_TENSE_POS
@@ -451,6 +461,14 @@ class VerbNormalizer:
 
         if verb.endswith("ഉണ്ടായിരുന്നു"):
             norm_form = verb[:-len("ഉണ്ടായിരുന്നു")] + "ഉണ്ടായിരുന്നത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+            return result
+
+        if verb.endswith("\u0D41\u0D23\u0D4D\u0D1F\u0D3E\u0D2F\u0D3F\u0D30\u0D41\u0D28\u0D4D\u0D28\u0D41"):
+            norm_form = verb[:-len("\u0D41\u0D23\u0D4D\u0D1F\u0D3E\u0D2F\u0D3F\u0D30\u0D41\u0D28\u0D4D\u0D28\u0D41")] + "\u0D41\u0D23\u0D4D\u0D1F\u0D3E\u0D2F\u0D3F\u0D30\u0D41\u0D28\u0D4D\u0D28\u0D24\u0D4D"
             result["status"] = "VALID"
             result["normalized"] = norm_form
             result["verb_class"] = CLASS_TENSE_POS

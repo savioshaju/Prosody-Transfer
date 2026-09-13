@@ -577,6 +577,24 @@ class AwesomeCleftPipeline:
 
         if target_indices:
             min_t, max_t = min(target_indices), max(target_indices)
+
+            # Trim trailing unheaded genitive modifier if English focus has no possessive/of and preceding token is complete
+            en_has_genitive = any(gw in english_focus.lower() for gw in ("'s", "’s", " of "))
+            while max_t > min_t:
+                last_w = strip_punctuation(tgt_tokens[max_t]).strip()
+                prev_w = strip_punctuation(tgt_tokens[max_t - 1]).strip()
+                if (
+                    not en_has_genitive
+                    and any(last_w.endswith(sfx) for sfx in ("ന്റെ", "ുടെ", "ിന്റെ", "്റെ"))
+                    and (
+                        any(prev_w.endswith(sfx) for sfx in ("ൽ", "ിൽ", "ത്തിൽ", "ത്ത്", "ന്", "ിന്", "ക്ക്", "യ്ക്ക്", "നിന്ന്", "ൽനിന്ന്"))
+                        or prev_w.isdigit()
+                    )
+                ):
+                    max_t -= 1
+                else:
+                    break
+
             # Jayaseelan P-stranding ban: if next token is postposition, include it in PP focus
             if max_t + 1 < len(tgt_tokens):
                 from cleft.cleft_pipeline import POSTPOSITIONS

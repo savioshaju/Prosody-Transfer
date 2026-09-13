@@ -329,7 +329,7 @@ def detect_structural_status(
     # 1. Whole PP (Focus explicitly ends with or contains postposition)
     is_pp = (
         clean_end in POSTPOSITIONS
-        or any(clean_end.endswith(sfx) for sfx in ("നിന്ന്", "ൽനിന്ന്", "യിൽനിന്ന്", "കൊണ്ട്", "ിലേക്ക്", "ലേക്ക്", "ങ്കൽ", "ഓട്", "യോട്", "ആൽ", "ാൽ"))
+        or any(clean_end.endswith(sfx) for sfx in ("നിന്ന്", "ൽനിന്ന്", "യിൽനിന്ന്", "കൊണ്ട്", "ിലേക്ക്", "ലേക്ക്", "ങ്കൽ", "ഓട്", "യോട്", "ആൽ", "ാൽ", "ലൂടെ", "ിലൂടെ", "ആലൂടെ", "ഉമായി", "ുമായി", "മായി"))
     )
     if is_pp:
         return "INDEPENDENT_CONSTITUENT", "Whole Postpositional Phrase (PP)"
@@ -348,7 +348,7 @@ def detect_structural_status(
 
     # 3. Whole NP with Case Marking (Accusative DO, Dative IO, Locative, etc.)
     has_case_marking = any(clean_end.endswith(sfx) for sfx in (
-        "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്", "ലെ", "ിലേക്ക്", "ലേക്ക്", "ആൽ", "ാൽ", "ഓട്", "യോട്"
+        "നെ", "യെ", "ിനെ", "ക്ക്", "യ്ക്ക്", "്ക്ക്", "ന്", "ിന്", "ൽ", "ിൽ", "ത്ത്", "ലെ", "ിലേക്ക്", "ലേക്ക്", "ആൽ", "ാൽ", "ഓട്", "യോട്", "ലൂടെ", "ിലൂടെ", "ആലൂടെ", "ഉമായി", "മായി"
     )) or bool(re.search(r'\b\d{4}(?:ൽ|ലെ|ലേക്ക്)?\b', clean_end))
     if has_case_marking:
         return "INDEPENDENT_CONSTITUENT", f"Whole Case-Marked NP ({clean_end})"
@@ -813,6 +813,10 @@ class CleftPipeline:
                 case_guess = "dative"
             elif any(head_word.endswith(sfx) for sfx in ("യെ", "നെ", "െ")):
                 case_guess = "accusative"
+            elif any(head_word.endswith(sfx) for sfx in ("ലൂടെ", "ിലൂടെ", "ആലൂടെ")):
+                case_guess = "instrumental"
+            elif any(head_word.endswith(sfx) for sfx in ("ഉമായി", "ുമായി", "മായി")):
+                case_guess = "sociative"
 
             from .copula_pipeline import MorphAnalysis
             selected_analysis = MorphAnalysis(

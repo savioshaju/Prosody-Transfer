@@ -33,9 +33,9 @@ def clean_no_punct(text):
     t = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', t)
 
     # 3. Orthographic free variations in Malayalam:
-    # (a) Adverbial copula -മായാണ് / -മായാൺ vs -മായിയാണ് / -മായിയാൺ
-    t = re.sub(r'മായാ[ണ്ൺ]\b', 'മായിയാൺ', t)
-    t = re.sub(r'മായിയാ[ണ്ൺ]\b', 'മായിയാൺ', t)
+    # (a) Adverbial copula -ായാണ് / -ായാൺ vs -മായിയാണ് / -മായിയാൺ / -ായിയാണ് / -ായിയാൺ
+    t = re.sub(r'ായാ[ണ്ൺ]\b', 'ായിയാൺ', t)
+    t = re.sub(r'ായിയാ[ണ്ൺ]\b', 'ായിയാൺ', t)
     # (b) Detached copula after alveolar/dental stops (e.g. ഇൻകോർപറേറ്റഡ് ആണ് vs ഇൻകോർപറേറ്റഡാണ്)
     t = re.sub(r'(\w)്\s+ആ[ണ്ൺ]\b', r'\1ാൺ', t)
     # (b2) Detached copula after front vowels with glide y (e.g. റേ ആണ് vs റേയാണ്, ഡൽഹി ആണ് vs ഡൽഹിയാണ്)
