@@ -56,9 +56,9 @@ def main():
             cleft_dict = res.get('cleft_pipeline_output', {}) or {}
             cleft_out = res.get('emphasized_malayalam_sentence', '') or ''
 
-            const_reord = res.get('constituency_reordering', {}) or {}
-            const_app = bool(const_reord.get('applicable', False))
-            const_sent = const_reord.get('reordered_sentence', '') if const_app else None
+            prev_reord = res.get('preverbal_focus_reordering', {}) or {}
+            prev_app = bool(prev_reord.get('applicable', False))
+            prev_sent = prev_reord.get('reordered_sentence', '') if prev_app else None
 
             # Strict Cleft completion: must have aanu attached AND verb normalised
             status = cleft_dict.get('status', '')
@@ -72,14 +72,14 @@ def main():
 
             cleft_done = bool(status == 'VALID' and cleft_out and cleft_out != mal and '<PE>' not in cleft_out and has_copula and has_norm_verb)
             
-            # Reordering check
-            const_reord_done = const_app and bool(const_sent)
+            # Preverbal reordering check
+            prev_reord_done = prev_app and bool(prev_sent)
 
             candidate_outputs = {}
             if cleft_done:
                 candidate_outputs['cleft_emphasized'] = cleft_out
-            if const_sent:
-                candidate_outputs['constituency_reordered'] = const_sent
+            if prev_sent:
+                candidate_outputs['preverbal_reordered'] = prev_sent
 
             # Target matching
             norm_target = normalize_text(target)
@@ -104,12 +104,12 @@ def main():
                 'focus': focus,
                 'target': target,
                 'cleft_done': cleft_done,
-                'const_reord_done': const_reord_done,
+                'prev_reord_done': prev_reord_done,
                 'cleft_reord_done': False,
-                'both_cleft_and_const_reord': cleft_done and const_reord_done,
+                'both_cleft_and_prev_reord': cleft_done and prev_reord_done,
                 'both_cleft_and_cleft_reord': False,
-                'either_cleft_or_const_reord': cleft_done or const_reord_done,
-                'either_cleft_or_any_reord': cleft_done or const_reord_done,
+                'either_cleft_or_prev_reord': cleft_done or prev_reord_done,
+                'either_cleft_or_any_reord': cleft_done or prev_reord_done,
                 'exact_match': exact_match_found,
                 'exact_matched_types': exact_matched_types,
                 'norm_match': norm_match_found,
@@ -160,13 +160,13 @@ def main():
             'proj_focus': r.get('proj_focus', ''),
             'target': r['target'],
             'cleft_done': r['cleft_done'],
-            'const_reord_done': r['const_reord_done'],
+            'prev_reord_done': r['prev_reord_done'],
             'exact_match': r['exact_match'],
             'exact_matched_types': ', '.join(r['exact_matched_types']),
             'norm_match': r['norm_match'],
             'norm_matched_types': ', '.join(r['norm_matched_types']),
             'cleft_emphasized': r['candidate_outputs'].get('cleft_emphasized', ''),
-            'constituency_reordered': r['candidate_outputs'].get('constituency_reordered', ''),
+            'preverbal_reordered': r['candidate_outputs'].get('preverbal_reordered', ''),
         })
     pd.DataFrame(flat_records).to_csv(eval_csv_path, index=False, encoding='utf-8-sig')
 
@@ -174,18 +174,18 @@ def main():
     exact_matches = sum(1 for r in results if r['exact_match'])
     norm_matches = sum(1 for r in results if r['norm_match'])
     cleft_cnt = sum(1 for r in results if r['cleft_done'])
-    const_reord_cnt = sum(1 for r in results if r['const_reord_done'])
-    both_cleft_const = sum(1 for r in results if r.get('both_cleft_and_const_reord', False))
-    either_cleft_const = sum(1 for r in results if r.get('either_cleft_or_const_reord', False))
+    prev_reord_cnt = sum(1 for r in results if r['prev_reord_done'])
+    both_cleft_prev = sum(1 for r in results if r.get('both_cleft_and_prev_reord', False))
+    either_cleft_prev = sum(1 for r in results if r.get('either_cleft_or_prev_reord', False))
 
     print("\n" + "=" * 60)
     print("EVALUATION SUMMARY")
     print("=" * 60)
     print(f"Total Sentences Evaluated               : {total}")
     print(f"Can do Clefting                        : {cleft_cnt} ({cleft_cnt / total * 100:.2f}%)")
-    print(f"Can do Constituency Reordering         : {const_reord_cnt} ({const_reord_cnt / total * 100:.2f}%)")
-    print(f"Can do Both (Clefting + Const Reorder) : {both_cleft_const} ({both_cleft_const / total * 100:.2f}%)")
-    print(f"Can do Either (Clefting OR Const Reord): {either_cleft_const} ({either_cleft_const / total * 100:.2f}%)")
+    print(f"Can do Preverbal Focus Reordering      : {prev_reord_cnt} ({prev_reord_cnt / total * 100:.2f}%)")
+    print(f"Can do Both (Clefting + Preverbal)     : {both_cleft_prev} ({both_cleft_prev / total * 100:.2f}%)")
+    print(f"Can do Either (Clefting OR Preverbal)  : {either_cleft_prev} ({either_cleft_prev / total * 100:.2f}%)")
     print("-" * 60)
     print(f"Strict Exact Match to Target           : {exact_matches} ({exact_matches / total * 100:.2f}%)")
     print(f"Normalized Match (ignoring punct/space): {norm_matches} ({norm_matches / total * 100:.2f}%)")

@@ -55,6 +55,58 @@ CASE_SUFFIXES = (
 )
 
 
+try:
+    import mlmorph
+    _mlmorph_analyser = mlmorph.Analyser()
+except Exception:
+    _mlmorph_analyser = None
+
+COMMON_VERB_FORMS = frozenset({
+    "വാങ്ങി", "വാങ്ങുന്നു", "വാങ്ങും", "വാങ്ങിച്ചു", "വാങ്ങിയത്",
+    "കണ്ടു", "കാണുന്നു", "കാണും", "കണ്ടത്", "കണ്ടുകഴിഞ്ഞു",
+    "കൊടുത്തു", "നൽകി", "നൽകുന്നു", "നൽകും", "കൊടുത്തത്", "കൊടുക്കുന്നു",
+    "എടുത്തു", "എടുക്കുന്നു", "എടുക്കും", "എടുത്തത്",
+    "പോയി", "പോകുന്നു", "പോകും", "പോയത്",
+    "വന്നു", "വരുന്നു", "വരും", "വന്നത്",
+    "പറഞ്ഞു", "പറയുന്നു", "പറയും", "പറഞ്ഞത്",
+    "എഴുതി", "എഴുതുന്നു", "എഴുതും", "എഴുതിയത്",
+    "വായിച്ചു", "വായിക്കുന്നു", "വായിക്കും", "വായിച്ചത്",
+    "ഉണ്ടാക്കി", "ഉണ്ടാക്കുന്നു", "ഉണ്ടാക്കും", "ഉണ്ടാക്കിയത്",
+    "ചെയ്യുക", "ചെയ്തു", "ചെയ്യുന്നു", "ചെയ്യും", "ചെയ്തത്",
+    "ആണ്", "ആയിരുന്നു", "ഉണ്ട്", "ഉണ്ടായിരുന്നു", "അല്ല", "ഇല്ല",
+    "തിന്നു", "കഴിച്ചു", "അയച്ചു", "കണ്ടെത്തി", "തീർത്തു", "തുടങ്ങി", "കഴിഞ്ഞു",
+    "നിയന്ത്രിച്ചു", "സ്ഥാപിച്ചു", "കൊന്നു", "തല്ലി", "വിശേഷിപ്പിച്ചു",
+})
+
+
+def is_malayalam_verb(form: str) -> bool:
+    if not form:
+        return False
+    if form in COMMON_VERB_FORMS:
+        return True
+    if _mlmorph_analyser:
+        analyses = _mlmorph_analyser.analyse(form)
+        if analyses:
+            top_parse = analyses[0][0]
+            if "<v>" in top_parse and not top_parse.startswith("<n>"):
+                return True
+    return False
+
+
+def is_proper_or_independent_noun(form: str) -> bool:
+    if not form:
+        return False
+    if form in ("മേരി", "ജോൺ", "ജോർജ്ജ്", "അവൻ", "അവൾ", "അവർ", "ഞാൻ", "നീ", "അച്ഛൻ", "അമ്മ"):
+        return True
+    if _mlmorph_analyser:
+        analyses = _mlmorph_analyser.analyse(form)
+        if analyses:
+            top_parse = analyses[0][0]
+            if "<np>" in top_parse or "<prn>" in top_parse:
+                return True
+    return False
+
+
 class PhraseChunk:
     def __init__(self, chunk_type: str, start_idx: int, end_idx: int, tokens: List[str], text: str, clause_id: int = 0):
         self.chunk_type = chunk_type  # 'NP', 'PP', 'AdvP', 'VP'
@@ -100,7 +152,7 @@ class MalayalamPhraseChunker:
 
         return clause_spans if clause_spans else [(0, len(sentence), sentence)]
 
-    def chunk_sentence(self, tokens: List[Any], sentence_text: Optional[str] = None) -> List[PhraseChunk]:
+    def chunk_sentence(self, tokens: List[Any], sentence_text: Optional[str] = None, detect_vp: bool = True) -> List[PhraseChunk]:
         """
         Segment a token list (strings or IR Token objects) into complete phrases.
         """
@@ -164,7 +216,13 @@ class MalayalamPhraseChunker:
                 i += 1
                 continue
 
-            # 2. Check for multi-word NP or PP
+            # 2. Check for VP (Verb Phrase)
+            if detect_vp and is_malayalam_verb(form):
+                chunks.append(PhraseChunk("VP", i, i, [form], form, c_id))
+                i += 1
+                continue
+
+            # 3. Check for multi-word NP or PP
             start_np = i
             curr = i
             while curr < n:
@@ -198,7 +256,7 @@ class MalayalamPhraseChunker:
                 is_genitive = c_form.endswith(("ന്റെ", "ുടെ", "ിന്റെ", "്റെ"))
                 is_adjective = (
                     c_pos.startswith("JJ")
-                    or any(c_form.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ", "ിലെ", "ലെ"))
+                    or any(c_form.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ"))
                     or c_form in ("ഈ", "ആ", "ഏത്", "നല്ല", "വലിയ", "ചെറിയ", "ഒരു", "രണ്ട്", "മൂന്ന്")
                 )
 
@@ -225,17 +283,33 @@ class MalayalamPhraseChunker:
                     i = curr + 1
                     break
 
+                # Independent proper nouns / pronouns do NOT compound into subsequent nouns
+                if is_proper_or_independent_noun(c_form) and curr + 1 < n and not is_malayalam_verb(c_form):
+                    chunks.append(PhraseChunk("NP", start_np, curr, token_forms[start_np : curr + 1], " ".join(token_forms[start_np : curr + 1]), c_id))
+                    i = curr + 1
+                    break
+
+                # If next word is a verb, terminate NP immediately
+                if detect_vp and curr + 1 < n and is_malayalam_verb(token_forms[curr + 1]):
+                    chunks.append(PhraseChunk("NP", start_np, curr, token_forms[start_np : curr + 1], " ".join(token_forms[start_np : curr + 1]), c_id))
+                    i = curr + 1
+                    break
+
                 # If next word starts a new constituent (e.g. demonstrative, new adjective, or different clause)
                 if curr + 1 < n:
                     next_f = token_forms[curr + 1]
                     next_p = token_poses[curr + 1] if curr + 1 < len(token_poses) else ""
                     next_is_adj = (
                         next_p.startswith("JJ")
-                        or any(next_f.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ", "ലെ", "ിലെ", "ന്റെ", "ുടെ", "ിന്റെ"))
+                        or any(next_f.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ", "ന്റെ", "ുടെ", "ിന്റെ"))
                         or next_f in ("വടക്കൻ", "തെക്കൻ", "കിഴക്കൻ", "പടിഞ്ഞാറൻ", "ഈ", "ആ", "ഏത്", "നല്ല", "വലിയ", "ചെറിയ", "ഒരു", "രണ്ട്", "മൂന്ന്")
                     )
-                    # Note: If next_f carries a case suffix, an uninflected noun stem compounds into it (e.g. ഡെറാഡൂൺ + നഗരത്തിന് -> [ഡെറാഡൂൺ നഗരത്തിന്])
-                    if next_f in POSTPOSITIONS or next_is_adj or clause_id_map[curr + 1] != c_id:
+                    # If next word carries a case suffix (locative, dative, ablative, accusative)
+                    # and current word is not an attributive modifier/adjective/genitive, terminate NP
+                    has_next_case = any(next_f.endswith(sfx) for sfx in ("ൽ", "ിൽ", "യിൽ", "ത്തിൽ", "ത്ത്", "ന്", "ിന്", "ക്ക്", "യ്ക്ക്", "നെ", "യെ", "ിനെ", "നിന്ന്", "ൽനിന്ന്", "യിൽനിന്ന്"))
+                    is_attributive = is_genitive or is_adjective or (c_form in DEGREE_MODIFIERS) or (c_pos.startswith("JJ"))
+
+                    if next_f in POSTPOSITIONS or next_is_adj or clause_id_map[curr + 1] != c_id or (has_next_case and not is_attributive):
                         chunks.append(PhraseChunk("NP", start_np, curr, token_forms[start_np : curr + 1], " ".join(token_forms[start_np : curr + 1]), c_id))
                         i = curr + 1
                         break

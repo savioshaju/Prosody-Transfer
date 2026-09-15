@@ -1,9 +1,3 @@
-"""
-Bhashaverse Machine Translation Module for SSF Pipeline.
-
-Provides an offline-first GPU-accelerated wrapper around the LTRC IIIT-Hyderabad
-Bhashaverse translation model (OneNMT v3b) for English-to-Malayalam.
-"""
 
 import os
 import sys

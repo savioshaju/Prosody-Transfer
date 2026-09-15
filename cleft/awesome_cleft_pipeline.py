@@ -49,11 +49,14 @@ import torch
 from aligner.alignment_utils import extract_alignment_and_prosody, strip_punctuation, is_word_match
 from aligner.tokenizer import tokenize_malayalam
 from aligner.simalign_wrapper import SimAlignerWrapper
+from aligner.morpho_simalign import MorphoSimAligner
+from aligner.standalone_syntactic_aligner import StandaloneSyntacticAligner
 from cleft.bhashik_focus_reorderer import BhashikFocusReorderer
-from cleft.constituency_reorderer import ConstituencyReorderer
+from cleft.preverbal_focus_reorderer import PreverbalFocusReorderer, is_wh_question
 from translators.bhashaverse_translator import BhashaverseTranslator
 from translators.krutrim_translator import KrutrimTranslator
 from cleft.cleft_pipeline import CleftPipeline, POSTPOSITIONS
+from evaluator.export_mismatches import clean_no_punct
 
 
 class AwesomeAlignerWrapper:
@@ -216,6 +219,7 @@ class AwesomeAlignerWrapper:
             reconciled_pairs = pruned_pairs
 
         # Inject validated entity anchors
+        entity_anchors: Dict[int, int] = {}
         for s_i, t_j in entity_anchors.items():
             if not any(item["src_index"] == s_i and item["tgt_index"] == t_j for item in reconciled_pairs):
                 reconciled_pairs.append({
@@ -315,17 +319,25 @@ class AwesomeCleftPipeline:
         self,
         cleft_engine: str = "ssf",  # "ssf" (CleftPipeline) or "neural" (BhashikFocusReorderer)
         model_dir: Optional[str] = None,
-        aligner_type: str = "awesome",  # "awesome" (default) or "simalign"
+        aligner_type: str = "morpho",  # "morpho" (Morpho-SimAlign: Best Accuracy), "syntactic" (0 MB standalone), or "simalign"
         aligner_model: Optional[str] = None,
         aligner_method: str = "itermax",  # for simalign: "itermax", "argmax", "match"
         device: Optional[str] = None,
     ):
         self.cleft_engine = cleft_engine.lower()
-        self.aligner_type = (aligner_type or "awesome").lower()
+        self.aligner_type = (aligner_type or "morpho").lower()
         default_model = "bert-base-multilingual-cased"
 
-        if self.aligner_type == "simalign":
+        if self.aligner_type in ("syntactic", "standalone", "syntax"):
+            self.aligner = StandaloneSyntacticAligner()
+        elif self.aligner_type == "simalign":
             self.aligner = SimAlignerWrapper(
+                model_name=aligner_model if aligner_model else default_model,
+                matching_method=aligner_method,
+                device=device,
+            )
+        elif self.aligner_type in ("morpho_simalign", "morpho"):
+            self.aligner = MorphoSimAligner(
                 model_name=aligner_model if aligner_model else default_model,
                 matching_method=aligner_method,
                 device=device,
@@ -337,6 +349,7 @@ class AwesomeCleftPipeline:
             )
         
         self.ssf_pipeline = CleftPipeline()
+        self.preverbal_reorderer = PreverbalFocusReorderer()
         self.neural_reorderer = None
         self.translator = None
         self.bhashaverse_translator = None
@@ -688,6 +701,43 @@ class AwesomeCleftPipeline:
                 malayalam_focus = ff_ml_matches[0].strip()
             clean_ml_sent = re.sub(r"</?FF>", "", malayalam_sentence).strip()
 
+        # Step 0a: Universal WH-Question Filter (Jayaseelan 2023 / Pipeline Gate)
+        is_en_wh, en_wh_reason = is_wh_question(clean_en_sent)
+        is_ml_wh, ml_wh_reason = is_wh_question(clean_ml_sent) if clean_ml_sent else (False, "")
+        if is_en_wh or is_ml_wh:
+            wh_reason = en_wh_reason if is_en_wh else ml_wh_reason
+            return {
+                "english_sentence": clean_en_sent,
+                "original_malayalam_sentence": clean_ml_sent,
+                "english_focus": english_focus,
+                "focused_malayalam_constituent": "",
+                "focus_candidates": [],
+                "focus_projection_metadata": {"original_focus": english_focus, "blocked": True},
+                "status": "BLOCKED",
+                "pipeline_status": "BLOCKED_WH_QUESTION",
+                "error": f"WH_QUESTION_BLOCKED: {wh_reason}",
+                "cleft_pipeline_output": {"status": "BLOCKED", "error": f"WH_QUESTION_BLOCKED: {wh_reason}"},
+                "emphasized_malayalam_sentence": clean_ml_sent,
+                "preverbal_focus_reordering": {
+                    "applicable": False,
+                    "status": "BLOCKED_WH_QUESTION",
+                    "reordered_sentence": clean_ml_sent,
+                    "reason": f"WH_QUESTION_BLOCKED: {wh_reason}",
+                },
+                "preverbal_reordering": {
+                    "applicable": False,
+                    "status": "BLOCKED_WH_QUESTION",
+                    "reordered_sentence": clean_ml_sent,
+                    "reason": f"WH_QUESTION_BLOCKED: {wh_reason}",
+                },
+                "cleft_reorderings": {},
+                "pre_cleft_en_to_ml_alignment": {},
+                "post_cleft_ml_to_en_alignment": {},
+                "post_cleft_en_to_ml_alignment": {},
+                "english_prosody_label_sequence": [],
+                "malayalam_prosody_label_sequence": [],
+            }
+
         # Step 0b: Automated Neural Machine Translation (Krutrim / Bhashaverse) if Malayalam input is omitted
         if not clean_ml_sent:
             chosen_mt = (mt_model or "k").strip().lower()
@@ -754,7 +804,7 @@ class AwesomeCleftPipeline:
         clean_proj_focus = strip_punctuation(projected_ml_focus)
 
 
-        # Step 2: SSF / Neural Clefting Pipeline Execution
+        # Step 2: SSF / Neural Clefting & Parallel Preverbal Focus Reordering
         if self.cleft_engine == "neural":
             if self.neural_reorderer is None:
                 self.neural_reorderer = BhashikFocusReorderer(model_dir=self.model_dir, device=self.device)
@@ -765,6 +815,8 @@ class AwesomeCleftPipeline:
                 focus_type=focus_type,
             )
             emphasized_ml_sentence = cleft_dict["reordered_sentence"]
+            is_cleft_suitable = True
+            cleft_res = None
         else:
             # SSF Rule-Based CleftPipeline (Phase 1-4)
             # Insert <FF>...<FF> around target focus using token indices
@@ -777,8 +829,27 @@ class AwesomeCleftPipeline:
 
             cleft_res = self.ssf_pipeline.process(tagged_ml_sent)
             cleft_dict = cleft_res.to_dict()
-            emphasized_ml_sentence = cleft_res.cleft_sentence if cleft_res.status == "VALID" else (cleft_res.cleft_sentence or clean_ml_sent)
+            is_cleft_suitable = (cleft_res.status == "VALID")
+            emphasized_ml_sentence = cleft_res.cleft_sentence if is_cleft_suitable else (cleft_res.cleft_sentence or clean_ml_sent)
             emphasized_ml_sentence = re.sub(r"</?PE>", "", emphasized_ml_sentence).strip()
+
+        # Step 2b: Parallel Preverbal Focus Reordering (Jayaseelan 2023 Spec-FocP)
+        # Gated by cleft suitability: "if it is allowed for clefting then it is allowed for this also"
+        if is_cleft_suitable:
+            main_verb = getattr(cleft_res, "main_verb", None) if cleft_res else None
+            preverbal_res = self.preverbal_reorderer.reorder(
+                original_sentence=clean_ml_sent,
+                focused_constituent=clean_proj_focus,
+                main_verb=main_verb,
+            )
+        else:
+            elig_reason = cleft_res.error if cleft_res else "Constituent not eligible for clefting."
+            preverbal_res = {
+                "applicable": False,
+                "status": "BLOCKED_BY_CLEFT_ELIGIBILITY",
+                "reordered_sentence": clean_ml_sent,
+                "reason": f"Preverbal focus reordering blocked because constituent is not suitable for clefting: {elig_reason}",
+            }
 
         # Step 3: Post-Cleft Dual Alignment (Awesome-Aligner)
         # 3a. Malayalam -> English alignment
@@ -863,17 +934,8 @@ class AwesomeCleftPipeline:
         }
 
         result["cleft_reorderings"] = {}
-
-        # Step 6: Parallel Constituency Reordering Branch
-        # Operates on the ORIGINAL (non-clefted) sentence.
-        # Only three rules are empirically attested; all others return NOT_APPLICABLE.
-        constituency_reorderer = ConstituencyReorderer()
-        effective_role = "" if (focus_type or "").upper() == "INFORMATION" else focus_type
-        result["constituency_reordering"] = constituency_reorderer.reorder(
-            original_sentence=clean_ml_sent,
-            focused_constituent=clean_proj_focus,
-            focus_role=effective_role,  # empty string enables morphological/heuristic detection
-        )
+        result["preverbal_focus_reordering"] = preverbal_res
+        result["preverbal_reordering"] = preverbal_res
 
         return result
 
@@ -991,35 +1053,33 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     else:
         lines.append("  * (No positional cleft reorderings produced.)")
 
-    # --- Branch B: CONSTITUENT REORDERING ---
+    # --- Branch B: PREVERBAL FOCUS POSITIONING (Jayaseelan 2023 Dravidian SOV Architecture) ---
     lines.append("\n" + "-" * 80)
-    lines.append("--- BRANCH B: CONSTITUENT REORDERING (4-Level Architecture) ---")
+    lines.append("--- BRANCH B: PREVERBAL FOCUS POSITIONING (Jayaseelan 2023 Dravidian SOV Architecture) ---")
     lines.append("-" * 80)
-    cr = res.get("constituency_reordering", {})
-    if cr.get("applicable"):
+    pfr = res.get("preverbal_focus_reordering", {}) or {}
+    if pfr.get("applicable"):
         lines.append(f"  * Status                       : APPLICABLE")
-        lines.append(f"  * Rule Applied                 : {cr.get('rule_applied')}")
-        lines.append(f"  * Reordered Output (Full Text) : {cr.get('reordered_sentence')}")
-        if cr.get("movement_vector"):
-            lines.append(f"  * Movement Vector (Constituent): {cr.get('movement_vector')} (position {cr.get('position_before')} -> position {cr.get('position_after')})")
-        if cr.get("isolated_sentence_before") and cr.get("isolated_sentence_after"):
-            lines.append(f"  * Isolated S_focus (Before)    : {cr.get('isolated_sentence_before')}")
-            lines.append(f"  * Isolated S_focus (After)     : {cr.get('isolated_sentence_after')}")
-        if cr.get("constituent_sequence_before"):
-            lines.append(f"  * Constituents (Before)        : {cr.get('constituent_sequence_before')}")
-        if cr.get("constituent_sequence_after"):
-            lines.append(f"  * Constituents (After)         : {cr.get('constituent_sequence_after')}")
-        if cr.get("focus_span_tokens"):
-            lines.append(f"  * Focus Span Tokens            : {cr.get('focus_span_tokens')}")
-        lines.append(f"  * Reason                       : {cr.get('reason')}")
-        if cr.get("diagnostic"):
-            lines.append(f"  * Diagnostic                   : {cr.get('diagnostic')}")
+        if pfr.get("already_preverbal"):
+            lines.append(f"  * Focus Status                 : ALREADY PREVERBAL (in-situ Spec-FocP)")
+        lines.append(f"  * Reordered Output (Full Text) : {pfr.get('reordered_sentence')}")
+        if pfr.get("movement_vector"):
+            lines.append(f"  * Movement Vector (Spec-FocP)  : {pfr.get('movement_vector')} (position {pfr.get('position_before')} -> position {pfr.get('position_after')})")
+        if pfr.get("constituent_type"):
+            lines.append(f"  * Constituent Type             : {pfr.get('constituent_type')}")
+        if pfr.get("isolated_sentence_before") and pfr.get("isolated_sentence_after"):
+            lines.append(f"  * Isolated Clause (Before)     : {pfr.get('isolated_sentence_before')}")
+            lines.append(f"  * Isolated Clause (After)      : {pfr.get('isolated_sentence_after')}")
+        if pfr.get("constituent_sequence_before"):
+            lines.append(f"  * Constituents (Before)        : {pfr.get('constituent_sequence_before')}")
+        if pfr.get("constituent_sequence_after"):
+            lines.append(f"  * Constituents (After)         : {pfr.get('constituent_sequence_after')}")
+        lines.append(f"  * Reason                       : {pfr.get('reason')}")
     else:
         lines.append(f"  * Status                       : NOT APPLICABLE")
-        if cr.get("isolated_sentence_before"):
-            lines.append(f"  * Target Sentence Isolated     : {cr.get('isolated_sentence_before')}")
-        lines.append(f"  * Reason                       : {cr.get('reason', '—')}")
-        lines.append(f"  * (Only ADVERB_FRONTING, DO_FRONTING, VERB_FRONTING are attested.)")
+        if pfr.get("status"):
+            lines.append(f"  * Status Code                  : {pfr.get('status')}")
+        lines.append(f"  * Reason                       : {pfr.get('reason', '—')}")
 
     lines.append("\n" + "═" * 80 + "\n")
     return "\n".join(lines)
@@ -1054,7 +1114,7 @@ def main():
     parser.add_argument("--en_focus", "-ef", type=str, default="", help="English focus word (e.g. 'Father')")
     parser.add_argument("--ml_focus", "-mf", type=str, default="", help="Malayalam focus word (optional, derived via alignment if omitted)")
     parser.add_argument("--op", "-o", type=str, default="CLEFT", choices=["CLEFT", "FRONTING"], help="Focus operation")
-    parser.add_argument("--aligner", "-a", type=str, default="awesome", choices=["awesome", "simalign"], help="Word aligner engine ('awesome' or 'simalign')")
+    parser.add_argument("--aligner", "-a", type=str, default="morpho", choices=["morpho", "syntactic", "awesome", "simalign"], help="Word aligner engine ('morpho' [Morpho-SimAlign: Best Accuracy], 'syntactic' [standalone phrase chunking], 'awesome', or 'simalign')")
     parser.add_argument("--aligner_model", type=str, default="", help="Model for word aligner (e.g. 'bert-base-multilingual-cased' or 'xlm-roberta-base')")
     parser.add_argument("--aligner_method", type=str, default="itermax", choices=["itermax", "argmax", "match"], help="Matching method for SimAlign ('itermax', 'argmax', 'match')")
     parser.add_argument("--output", "-out", type=str, default="output.txt", help="Output file path (default: output.txt)")

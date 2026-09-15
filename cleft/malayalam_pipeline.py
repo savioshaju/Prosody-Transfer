@@ -37,6 +37,8 @@ class MalayalamPipeline:
             score -= 40
         if feat_tags & finite_markers:
             score += 40
+        if any(form.endswith(sfx) for sfx in ("ഉണ്ടായിരുന്നു", "ായിരുന്നു", "ആയിരുന്നു", "ഉണ്ട്")):
+            score += 60
             
         # 3. Position bias (rightmost matrix finite verb in clause structure)
         score += idx
@@ -48,20 +50,34 @@ class MalayalamPipeline:
         for i, (form, form_pos, analysis, lemma_pos) in enumerate(
             zip(tokens, form_pos_tags, analyses, lemma_pos_tags)
         ):
+            # Exclude false-positive noun coordination ending in -കാരും, -ക്കാരും, -മാരും
+            if form.endswith(("കാരും", "ക്കാരും", "മാരും", "കാർ", "ക്കാർ")):
+                continue
+
             feats = analysis.get('feats', '')
+            raw_analysis = analysis.get('raw', '')
+            analyses_list = analysis.get('analyses', [])
+            has_verb_morph = any(t in feats for t in ('past', 'present', 'future', 'mood', 'aspect', 'aff')) or "<v>" in raw_analysis or any("<v>" in str(a) for a in analyses_list)
+            is_pure_noun = (any(("<n>" in str(a) or "<np>" in str(a) or "<prn>" in str(a)) for a in analyses_list) or form_pos.startswith("N_")) and not has_verb_morph
+
+            if is_pure_noun:
+                continue
+
+            has_verb_suffix = any(form.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "ചെയ്യുന്നു", "ചെയ്യുന്നത്", "ആണ്", "ആയിരുന്നു", "ായിരുന്നു", "ഉണ്ടായിരുന്നു", "ഉണ്ട്", "ഇല്ല", "പ്പെട്ടിരിക്കുന്നു", "പ്പെടുന്നു"))
             has_verb_tag = (
                 form_pos.startswith("V_") or
-                lemma_pos.startswith("V_") or
-                any(t in feats for t in ('past', 'present', 'future', 'mood', 'aspect', 'aff')) or
-                any(form.endswith(sfx) for sfx in ("ുന്നു", "ിച്ചു", "തു", "ി", "ണം", "ും", "ാം", "ചെയ്യുന്നു", "ചെയ്യുന്നത്"))
+                has_verb_morph or
+                has_verb_suffix or
+                form in ("വാങ്ങി", "കണ്ടു", "കൊടുത്തു", "ചെയ്തു", "പോയി", "വന്നു", "പറഞ്ഞു", "എഴുതി", "ഉണ്ടായിരുന്നു")
             )
             if has_verb_tag:
                 s = self._score_verb_candidate(i, form, form_pos, lemma_pos, analysis)
                 candidates.append((i, s))
                 
         if not candidates:
-            # Fallback to the sentence-final token as the main verb
-            return len(tokens) - 1
+            # In verbless / equational sentences (Moag §2.5, §5.4), there is no overt finite verb.
+            # Do not force the sentence-final nominal/adjective to be treated as a verb.
+            return None
             
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates[0][0]

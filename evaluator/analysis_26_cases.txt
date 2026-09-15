@@ -1,0 +1,147 @@
+==========================================================================================
+GROUP 1: 13 SENTENCES MISMATCHED DESPITE CORRECT FOCUS ALIGNMENT
+(Clefting succeeded, focus correctly identified, but differed from gold target)
+==========================================================================================
+
+--- [Case 1/13] Row 20 ---
+English:       In Taiwan, polls and research have consistently shown strong support for the death penalty at 80%.
+English Focus: strong support
+Projected Foc: പിന്തുണ വധശിക്ഷയ്ക്ക് നിരന്തരം
+Gold Target:   തായ്‌വാനിലെ തിരഞ്ഞെടുപ്പുകളും ഗവേഷണവും 80% വരുന്ന കടുത്ത പിന്തുണയാണ് വധശിക്ഷയ്ക്ക് നിരന്തരം നല്‍കിക്കൊണ്ടിരിക്കുന്നത്.
+Generated Out: തായ്‌വാനിലെ തിരഞ്ഞെടുപ്പുകളും ഗവേഷണവും 80 വരുന്ന കടുത്ത പിന്തുണ വധശിക്ഷയ്ക്ക് നിരന്തരമാണ് നൽകിക്കൊണ്ടിരിക്കുന്നത്.
+
+--- [Case 2/13] Row 25 ---
+English:       A. T. I entered the mobile computing sector by introducing 3D-graphics acceleration to laptops in 1996.
+English Focus: A. T. I
+Projected Foc: 1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡിഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ ടി ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചു
+Gold Target:   1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ. ടി. ഐയാണ് മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചത്.
+Generated Out: 1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ. ടി. ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചത്വാണ്.
+
+--- [Case 3/13] Row 28 ---
+English:       A. T. I entered the mobile computing sector by introducing 3D-graphics acceleration to laptops in 1996.
+English Focus: to laptops
+Projected Foc: ലാപ്ടോപ്പുകളിൽ 3ഡിഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ ടി ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ്
+Gold Target:   1996ൽ ലാപ്ടോപ്പുകളിലാണ് 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ. ടി. ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചത്.
+Generated Out: 1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ. ടി. ഐ മൊബൈൽ കമ്പ്യൂട്ടിങാണ് മേഖലയിൽ പ്രവേശിച്ചത്.
+
+--- [Case 4/13] Row 60 ---
+English:       It is published by Encyclopedia Britannica, Inc.; the company has existed since the 18th century, although it has changed ownership various times through the centuries.
+English Focus: since the 18th century
+Projected Foc: പതിനെട്ടാംനൂറ്റാണ്ടുമുതൽ
+Gold Target:   എൻസൈക്ലോപീഡിയ ബ്രിട്ടാനിക്കാ ഇൻകോർപറേറ്റഡ് അത് പ്രസിദ്ധീകരിച്ചു; ഈ കമ്പനി പതിനെട്ടാംനൂറ്റാണ്ടുമുതലാണ് നിലനിൽക്കുന്നതെങ്കിലും അതിൻ്റെ ഉടമസ്ഥാവകാശം നൂറ്റാണ്ടുകൾ കടന്നുപോകവേ പലതവണ കൈമാറ്റം ചെയ്യപ്പെട്ടിട്ടുണ്ട്.
+Generated Out: എൻസൈക്ലോപീഡിയ ബ്രിട്ടാനിക്കാ ഇൻകോർപറേറ്റഡ് അത് പ്രസിദ്ധീകരിച്ചു; ഈ കമ്പനി പതിനെട്ടാംനൂറ്റാണ്ടുമുതലാണ് നിലനിൽക്കുന്നതാണെങ്കിലും അതിൻ്റെ ഉടമസ്ഥാവകാശം നൂറ്റാണ്ടുകൾ കടന്നുപോകവേ പലതവണ കൈമാറ്റം ചെയ്യപ്പെട്ടിട്ടുള്ളത്.
+
+--- [Case 5/13] Row 61 ---
+English:       It is published by Encyclopedia Britannica, Inc.; the company has existed since the 18th century, although it has changed ownership various times through the centuries.
+English Focus: the company
+Projected Foc: ഈ കമ്പനി
+Gold Target:   എൻസൈക്ലോപീഡിയ ബ്രിട്ടാനിക്കാ ഇൻകോർപറേറ്റഡ് അത് പ്രസിദ്ധീകരിച്ചു; ഈ കമ്പനിയാണ് പതിനെട്ടാംനൂറ്റാണ്ടുമുതൽ നിലനിൽക്കുന്നതെങ്കിലും അതിൻ്റെ ഉടമസ്ഥാവകാശം നൂറ്റാണ്ടുകൾ കടന്നുപോകവേ പലതവണ കൈമാറ്റം ചെയ്യപ്പെട്ടിട്ടുണ്ട്.
+Generated Out: എൻസൈക്ലോപീഡിയ ബ്രിട്ടാനിക്കാ ഇൻകോർപറേറ്റഡ് അത് പ്രസിദ്ധീകരിച്ചു; ഈ കമ്പനിയാണ് പതിനെട്ടാംനൂറ്റാണ്ടുമുതൽ നിലനിൽക്കുന്നതാണെങ്കിലും അതിൻ്റെ ഉടമസ്ഥാവകാശം നൂറ്റാണ്ടുകൾ കടന്നുപോകവേ പലതവണ കൈമാറ്റം ചെയ്യപ്പെട്ടിട്ടുള്ളത്.
+
+--- [Case 6/13] Row 65 ---
+English:       Although Thomas precession (net rotation after a trajectory that returns to its initial velocity) is a purely kinematic effect, it only occurs in curvilinear motion and therefore cannot be observed independently of some external force causing the curvilinear motion, such as that caused by an electromagnetic field, a gravitational field, or a mechanical force, so Thomas precession is usually accompanied by dynamical effects.
+English Focus: Thomas precession
+Projected Foc: തോമസ് പ്രിസെഷൻ
+Gold Target:   തോമസ് പ്രിസെഷൻ (പ്രാരംഭവേഗതയിലേക്ക് മടങ്ങുന്ന ഒരു സഞ്ചാരപഥത്തിന് ശേഷമുള്ള നെറ്റ് റൊട്ടേഷൻ) ഒരു കേവലം ചലനാത്മകമായ പ്രഭാവമാണെങ്കിലും, അത് വക്രരേഖീയമായ ചലനത്തിൽ മാത്രം സംഭവിക്കുന്നതും അതിനാൽ വക്രരേഖീയമായ ചലനമുണ്ടാക്കുന്ന വൈദ്യുതകാന്തിക മണ്ഡലം, ഗുരുത്വാകർഷണ മണ്ഡലം, മെക്കാനിക്കൽ ബലം തുടങ്ങിയ ബാഹ്യബലത്തിൽനിന്ന് സ്വതന്ത്രമായി നിരീക്ഷിക്കാനാകാത്തതും ആയതിനാൽ തോമസ് പ്രിസെഷനാണ് സാധാരണമായി ചലനാത്മക പ്രഭാവങ്ങളോടൊപ്പം സംഭവിക്കുന്നത്.
+Generated Out: തോമസ് പ്രിസെഷനാണ് ( പ്രാരംഭവേഗതയിലേക്ക് മടങ്ങുന്ന ഒരു സഞ്ചാരപഥത്തിന് ശേഷമുള്ള നെറ്റ് റൊട്ടേഷൻ ) ഒരു കേവലം ചലനാത്മകമായ പ്രഭാവമാണെങ്കിലും, അത് വക്രരേഖീയമായ ചലനത്തിൽ മാത്രം സംഭവിക്കുന്നതും അതിനാൽ വക്രരേഖീയമായ ചലനമുണ്ടാക്കുന്ന വൈദ്യുതകാന്തിക മണ്ഡലം, ഗുരുത്വാകർഷണ മണ്ഡലം, മെക്കാനിക്കൽ ബലം തുടങ്ങിയ ബാഹ്യബലത്തിൽനിന്ന് സ്വതന്ത്രമായി നിരീക്ഷിക്കാനാകാത്തതും ആയതിനാൽ തോമസ് പ്രിസെഷൻ സാധാരണമായി ചലനാത്മക പ്രഭാവങ്ങളോടൊപ്പം സംഭവിക്കുന്നത്.
+
+--- [Case 7/13] Row 73 ---
+English:       Body colour gets merged with the outer line, creating the effect of volume.
+English Focus: effect of volume
+Projected Foc: ബാഹ്യരേഖയുമായി ഇഴുകിച്ചേര്‍ന്ന് വലിപ്പത്തിന്‍റെ ഒരു പ്രതീതിയുണ്ടാക്കുന്നു
+Gold Target:   ശില്പങ്ങളുടെയും മറ്റും നിറം ബാഹ്യരേഖയുമായി ഇഴുകിച്ചേര്‍ന്ന് വലിപ്പത്തിന്‍റെ ഒരു പ്രതീതിയാണ് ഉണ്ടാക്കുന്നത്.
+Generated Out: ശില്പങ്ങളുടെയും മറ്റും നിറം ബാഹ്യരേഖയുമായി ഇഴുകിച്ചേര്‍ന്ന് വലിപ്പത്തിന്‍റെ ഒരു പ്രതീതിയുണ്ടാക്കുന്നതാണ്.
+
+--- [Case 8/13] Row 78 ---
+English:       But Mangal Pandey's brave deed was done through devotion to a high and noble principle.
+English Focus: devotion
+Projected Foc: ഒരാദര്‍ശത്തോടുള്ള സമര്‍പ്പണത്തിലൂടെ മംഗള്‍ പാണ്ഡേയുടെ ധീരകൃത്യം
+Gold Target:   ഉന്നതവും ഉദാത്തവുമായ ഒരാദര്‍ശത്തോടുള്ള സമര്‍പ്പണത്തിലൂടെയാണ് മംഗള്‍ പാണ്ഡേയുടെ ധീരകൃത്യം നിറവേറ്റപ്പെട്ടത്.
+Generated Out: ഉന്നതവും ഉദാത്തവുമായ ഒരാദര്‍ശത്തോടുള്ള സമര്‍പ്പണത്തിലൂടെ മംഗള്‍ പാണ്ഡേയുടെ ധീരകൃത്യമാണ് നിറവേറ്റപ്പെട്ടത്.
+
+--- [Case 9/13] Row 97 ---
+English:       The game of Volleyball was invented by William G. Morgan in the year 1895 in Holyoke, Massachusetts by YMCA (USA).
+English Focus: in the year 1895
+Projected Foc: 1895ൽ
+Gold Target:   മസാച്ചുസെറ്റ്സിലെ (യു.എസ്.എ.) ഹോളിയോക്കില്‍ 1895 ലാണ് വില്ല്യം ജി. മോര്‍ഗന്‍ വോളിബോള്‍ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചത്.
+Generated Out: മസാച്ചുസെറ്റ്സിലെ ( യു.എസ്.എ. ) ഹോളിയോക്കിൽ 1895ലാണ് വില്ല്യം ജി. മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചു.
+
+--- [Case 10/13] Row 99 ---
+English:       The game of Volleyball was invented by William G. Morgan in the year 1895 in Holyoke, Massachusetts by YMCA (USA).
+English Focus: William G. Morgan
+Projected Foc: വില്ല്യം ജി മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദം
+Gold Target:   മസാച്ചുസെറ്റ്സിലെ (യു.എസ്.എ.) ഹോളിയോക്കിൽ 1895ൽ വില്ല്യം ജി. മോർഗനാണ് വോളിബോൾ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചത്.
+Generated Out: മസാച്ചുസെറ്റ്സിലെ ( യു.എസ്.എ. ) ഹോളിയോക്കിൽ 1895ൽ വില്ല്യം ജി. മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദമാണ് കണ്ടുപിടിച്ചത്.
+
+--- [Case 11/13] Row 100 ---
+English:       The game of Volleyball was invented by William G. Morgan in the year 1895 in Holyoke, Massachusetts by YMCA (USA).
+English Focus: in Holyoke, Massachusetts
+Projected Foc: ഹോളിയോക്കിൽ 1895ൽ വില്ല്യം ജി മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചു
+Gold Target:   മസാച്ചുസെറ്റ്സിലെ (യു.എസ്.എ.) ഹോളിയോക്കിലാണ് 1895ൽ വില്ല്യം ജി. മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചത്.
+Generated Out: മസാച്ചുസെറ്റ്സിലെ ( യു.എസ്.എ. ) ഹോളിയോക്കിൽ 1895ൽ വില്ല്യം ജി. മോർഗൻ വോളിബോൾ എന്ന കായികവിനോദം കണ്ടുപിടിച്ചത്വാണ്.
+
+--- [Case 12/13] Row 104 ---
+English:       While cesium recovery is aimed in the second cycle, Strontium-Actinide-Lanthanide combined separation is achieved in the third cycle from HLLW.
+English Focus: in the third cycle
+Projected Foc: മൂന്നാം പരിവൃത്തിയിൽ
+Gold Target:   രണ്ടാം പരിവൃത്തിയില്‍ സീഷ്യം വീണ്ടെടുപ്പ് ലക്‌ഷ്യം വയ്ക്കുമ്പോള്‍ എച്ച്.എല്‍.എല്‍.ഡബ്ല്യൂ.വിന്‍റെ മൂന്നാം പരിവൃത്തിയിലാണ് സ്ട്രോണ്‍ഷ്യം-ആക്റ്റിനൈഡ്‌-ലാന്തനൈഡ്‌ സംയുക്ത വേര്‍തിരിവ് സാധ്യമാകുന്നത്.
+Generated Out: രണ്ടാം പരിവൃത്തിയിൽ സീഷ്യം വീണ്ടെടുപ്പ് ലക്ഷ്യം വയ്ക്കുമ്പോൾ എച്ച്.എൽ.എൽ.ഡബ്ല്യൂവിന്റെ മൂന്നാം പരിവൃത്തിയിലാണ് സ്ട്രോൺഷ്യം-ആക്റ്റിനൈഡ്-ലാന്തനൈഡ് സംയുക്ത വേർതിരിവ് സാധ്യമാകുന്നത്.
+
+--- [Case 13/13] Row 113 ---
+English:       Generally, three days are allotted for the discussion.
+English Focus: Generally
+Projected Foc: സാധാരണഗതിയിൽ ചർച്ചയ്ക്കായി
+Gold Target:   സാധാരണഗതിയിലാണ് ചർച്ചയ്ക്കായി മൂന്നുദിവസം അനുവദിച്ചിട്ടുള്ളത്.
+Generated Out: സാധാരണഗതിയിൽ ചർച്ചയ്ക്കായിയാണ് മൂന്നുദിവസം അനുവദിച്ചിട്ടുള്ളത്
+
+
+==========================================================================================
+GROUP 2: 13 SENTENCES FAILED / BLOCKED DESPITE CORRECT FOCUS ALIGNMENT
+(Focus correctly identified, but clefting failed or was blocked by syntactic gate)
+==========================================================================================
+
+--- [Case 1/13] Row 27 ---
+English:       A. T. I entered the mobile computing sector by introducing 3D-graphics acceleration to laptops in 1996.
+English Focus: introducing 3D-graphics acceleration
+Projected Foc: 3ഡിഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ ടി ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചു
+Malayalam In:  1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്ന് എ. ടി. ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചു.
+Gold Target:   1996ൽ ലാപ്ടോപ്പുകളിൽ 3ഡി-ഗ്രാഫിക്സിൻ്റെ ത്വരണം കൊണ്ടുവന്നാണ് എ. ടി. ഐ മൊബൈൽ കമ്പ്യൂട്ടിങ് മേഖലയിൽ പ്രവേശിച്ചത്.
+Pipeline Stat: PE_ROUTED
+Reason/Error:  Blocked: Embedded subconstituent inside NP '3ഡിഗ്രാഫിക്സിൻ്റെ ത്വരണം' (Island constraint: Dravidian P-stranding/Left Branch violation)
+
+--- [Case 2/13] Row 30 ---
+English:       A 2003 Battelle Environmental Evaluation System (BEES) evaluation of Bangalore's physical, biological and socioeconomic parameters indicated that Bangalore's water quality and terrestrial and aquatic ecosystems were close to ideal, while the city's socioeconomic parameters (traffic, quality of life) air quality and noise pollution were poor.
+English Focus: were poor
+Projected Foc: മോശമാണെന്ന്
+Malayalam In:  ബാംഗ്ലൂരിൻ്റെ ജലഗുണനിലവാരം, ഭൗമ, ജല ആവാസവ്യവസ്ഥകളും ഉത്തമനിലവാരത്തോടടുത്തിരിക്കെ, നഗരത്തിൻ്റെ സാമൂഹികസാമ്പത്തികഘടകങ്ങളും (വാഹനത്തിരക്ക്, ജീവിത ഗുണനിലവാരം) വായുമലിനീകരണവും ശബ്ദമലിനീകരണവും മോശമാണെന്ന് ബാംഗ്ലൂരിൻ്റെ ഭൗതികവും ജീവശാസ്ത്രപരവും സാമൂഹിക സാമ്പത്തികവുമായ ഘടകങ്ങളുടെ ബെറ്റൽ എൻവിറോൺമെൻ്റൽ ഇവാല്വേഷൻ സിസ്റ്റ(ബി. ഇ. ഇ. എസ്)ത്തിൻ്റെ 2003ലെ ഒരു വിലയിരുത്തൽ സൂചിപ്പിച്ചു.
+Gold Target:   ബാംഗ്ലൂരിൻ്റെ ജലഗുണനിലവാരവും ഭൗമ, ജല ആവാസവ്യവസ്ഥകളും ഉത്തമനിലവാരത്തോടടുത്തിരിക്കെ, നഗരത്തിൻ്റെ സാമൂഹികസാമ്പത്തികഘടകങ്ങളും (വാഹനത്തിരക്ക്, ജീവിത ഗുണനിലവാരം) വായുമലിനീകരണവും ശബ്ദമലിനീകരണവും മോശമാണെന്നാണ് ബാംഗ്ലൂരിൻ്റെ ഭൗതികവും ജീവശാസ്ത്രപരവും സാമൂഹിക സാമ്പത്തികവുമായ ഘടകങ്ങളുടെ ബെറ്റൽ എൻവിറോൺമെൻ്റൽ ഇവാല്വേഷൻ സിസ്റ്റ(ബി. ഇ. ഇ. എസ്)ത്തിൻ്റെ 2003ലെ ഒരു വിലയിരുത്തൽ സൂചിപ്പിച്ചത്.
+Pipeline Stat: CLEFT_FAILED
+Reason/Error:  Cleft incomplete: copula_attached=False, verb_normalized=True
+
+--- [Case 3/13] Row 45 ---
+English:       Citrus fruit is mainly grown in the central parts of Jamaica, particularly between the elevations of 1,000-2,500 feet.
+English Focus: Citrus fruit
+Projected Foc: ജമൈക്കയുടെ മദ്ധ്യഭാഗങ്ങളിൽ വിശേഷിച്ചും 1 000 മുതൽ 2 500 അടിവരെയുള്ള ഉയരങ്ങളിൽ നാരകവർഗ്ഗപ്പഴങ്ങൾ
+Malayalam In:  ജമൈക്കയുടെ മദ്ധ്യഭാഗങ്ങളിൽ, വിശേഷിച്ചും 1,000 മുതൽ 2,500 അടിവരെയുള്ള ഉയരങ്ങളിൽ, നാരകവർഗ്ഗപ്പഴങ്ങൾ പ്രധാനമായും കൃഷി ചെയ്യുന്നു.
+Gold Target:   ജമൈക്കയുടെ മദ്ധ്യഭാഗങ്ങളിൽ, വിശേഷിച്ചും 1,000 മുതൽ 2,500 അടിവരെയുള്ള ഉയരങ്ങളിൽ, നാരകവർഗ്ഗപ്പഴങ്ങളാണ് പ്രധാനമായും കൃഷി ചെയ്യുന്നത്.
+Pipeline Stat: PE_ROUTED
+Reason/Error:  Blocked: Embedded subconstituent inside NP 'ജമൈക്കയുടെ മദ്ധ്യഭാഗങ്ങളിൽ' (Island constraint: Dravidian P-stranding/Left Branch violation)
+
+--- [Case 4/13] Row 70 ---
+English:       Mains filter capacitors are usually encapsulated in wound plastic film types since these deliver high voltage ratings at a low cost and may be made self-healing and fusible.
+English Focus: Mains filter capacitors
+Projected Foc: റേറ്റിംഗുകൾ നല്കുന്നതിനാലും സ്വയം ശരിപ്പെടുത്തുന്നതും ഫ്യൂസിബിളും ആക്കാമെന്നതിനാലും മെയിൻസ് ഫിൽറ്റർ കപ്പാസിറ്ററുകൾ സാധാരണ പ്ലാസ്റ്റിക് ഫിലിമിൻ്റെ
+Malayalam In:  കുറഞ്ഞ ചിലവിൽ ഉയർന്ന റേറ്റിംഗുകൾ നല്കുന്നതിനാലും, സ്വയം ശരിപ്പെടുത്തുന്നതും ഫ്യൂസിബിളും ആക്കാമെന്നതിനാലും മെയിൻസ് ഫിൽറ്റർ കപ്പാസിറ്ററുകൾ സാധാരണ പ്ലാസ്റ്റിക് ഫിലിമിൻ്റെ ആവരണം നൽകപ്പെട്ട് ഒതുക്കിയരൂപത്തിലാക്കുന്നു.
+Gold Target:   കുറഞ്ഞ ചിലവിൽ ഉയർന്ന റേറ്റിംഗുകൾ നല്കുന്നതിനാലും, സ്വയം ശരിപ്പെടുത്തുന്നതും ഫ്യൂസിബിളും ആക്കാമെന്നതിനാലും മെയിൻസ് ഫിൽറ്റർ കപ്പാസിറ്ററുകളാണ് സാധാരണ പ്ലാസ്റ്റിക് ഫിലിമിൻ്റെ ആവരണം നൽകപ്പെട്ട് ഒതുക്കിയരൂപത്തിലാക്കുന്നത്.
+Pipeline Stat: BLOCKED
+Reason/Error:  Genitive possessor 'റേറ്റിംഗുകൾ നല്കുന്നതിനാലും, സ്വയം ശരിപ്പെടുത്തുന്നതും ഫ്യൂസിബിളും ആക്കാമെന്നതിനാലും മെയിൻസ് ഫിൽറ്റർ കപ്പാസിറ്ററുകൾ സാധാരണ പ്ലാസ്റ്റിക് ഫിലിമിൻ്റെ' cannot be independently clefted away from its head noun.
+
+--- [Case 5/13] Row 80 ---
+English:       The two epics found in Tamil are Cilapathikaram and Manimekalai.
+English Focus: The two epics found in Tamil
+Projected Foc: തമിഴിൽ കണ്ടെത്തിയിട്ടുള്ള രണ്ട് മഹാകാവ്യങ്ങള്‍
+Malayalam In:  തമിഴിൽ കണ്ടെത്തിയിട്ടുള്ള രണ്ട് മഹാകാവ്യങ്ങള്‍ ചിലപ്പതികാരവും മണിമേഖലയുമാണ്‌.
+Gold Target:   തമിഴിൽ കണ്ടെത്തിയിട്ടുള്ള രണ്ട് മഹാകാവ്യങ്ങളാണ് ചിലപ്പതികാരവും മണിമേഖലയും.
+Pipeline Stat: UNRESOLVED
+Reason/Error:  Matrix verb normalization failed: 
+

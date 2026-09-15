@@ -89,7 +89,7 @@ class EnglishPhraseChunker:
         # 2. Extract Prepositional Phrases (PP): Prep + POBJ NP
         pp_token_spans = set()
         for token in doc:
-            if token.pos_ == "ADP" and token.dep_ in ("prep", "agent"):
+            if token.pos_ == "ADP" and (token.dep_ in ("prep", "agent", "dative") or any(c.dep_ in ("pobj", "pcomp") for c in token.children)):
                 pobj_children = [c for c in token.children if c.dep_ in ("pobj", "pcomp")]
                 if pobj_children:
                     pobj = pobj_children[0]
@@ -105,7 +105,9 @@ class EnglishPhraseChunker:
 
         # 3. Extract Noun Chunks (NP)
         for nc in doc.noun_chunks:
-            # If the noun chunk is strictly inside a PP, we still keep it or let PP take precedence for prepositional focus
+            # If the noun chunk is strictly inside a PP, avoid duplicating it as a separate phrase
+            if nc.start in pp_token_spans and (nc.end - 1) in pp_token_spans:
+                continue
             c_id = clause_map.get(nc.start, 0)
             chunks.append(EnglishChunk("NP", nc.start_char, nc.end_char, nc.start, nc.end - 1, nc.text, c_id))
 
@@ -118,6 +120,15 @@ class EnglishPhraseChunker:
                     adv_text = doc[s_t : e_t + 1].text
                     c_id = clause_map.get(s_t, 0)
                     chunks.append(EnglishChunk("AdvP", doc[s_t].idx, doc[e_t].idx + len(doc[e_t].text), s_t, e_t, adv_text, c_id))
+
+        # 5. Extract Verb Phrases (VP)
+        for token in doc:
+            if token.pos_ in ("VERB", "AUX") and token.dep_ in ("ROOT", "advcl", "relcl", "ccomp", "xcomp", "conj"):
+                vp_tokens = sorted([t.i for t in token.children if t.pos_ in ("AUX", "PART") or t.dep_ in ("aux", "auxpass", "prt", "neg")] + [token.i])
+                s_t, e_t = min(vp_tokens), max(vp_tokens)
+                vp_text = doc[s_t : e_t + 1].text
+                c_id = clause_map.get(s_t, 0)
+                chunks.append(EnglishChunk("VP", doc[s_t].idx, doc[e_t].idx + len(doc[e_t].text), s_t, e_t, vp_text, c_id))
 
         # Sort chunks by start token
         chunks.sort(key=lambda c: (c.start_token, -(c.end_token - c.start_token)))

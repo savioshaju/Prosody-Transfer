@@ -60,6 +60,8 @@ ADJECTIVE_PREDICATES = {
     "മോശം", "കേമം", "ധീരം", "സത്യം", "ശുദ്ധം", "വ്യക്തം", "ശരി", "തെറ്റ്"
 }
 
+from .phrase_chunker import POSTPOSITIONS
+
 
 # ---------------------------------------------------------------------------
 # SECTION 1: CLEFT vs PE ELIGIBILITY DECISION FUNCTION
@@ -246,12 +248,22 @@ def detect_structural_status(
         _chunker = MalayalamPhraseChunker()
         _enclosing = _chunker.find_enclosing_phrase(tokens, start_idx, end_idx)
         if _enclosing:
-            if end_idx < _enclosing.end_idx:
-                # The focus is an embedded modifier leaving the right-edge head noun or postposition behind (Island constraint)
-                return "SUB_CONSTITUENT", f"Embedded subconstituent inside {_enclosing.chunk_type} '{_enclosing.text}' (Island constraint: Dravidian P-stranding/Left Branch violation)"
-            elif end_idx == _enclosing.end_idx:
+            if end_idx == _enclosing.end_idx:
                 # The focus encompasses the right-edge head noun or the entire maximal projection
                 return "INDEPENDENT_CONSTITUENT", f"Whole/Head {_enclosing.chunk_type} ('{_enclosing.text}')"
+            elif end_idx < _enclosing.end_idx:
+                # Check whether the focus is actually an attributive modifier / specifier of that chunk
+                is_attributive_modifier = (
+                    clean_end.endswith(("ന്റെ", "ുടെ", "ിന്റെ", "്റെ"))
+                    or clean_end in DEGREE_MODIFIERS
+                    or clean_end in NUMERAL_WORDS
+                    or end_pos.startswith("JJ")
+                    or end_pos.startswith("QT")
+                    or (any(clean_end.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ")) and not any(clean_end.endswith(sfx) for sfx in ("ത്", "തു്", "ആണ്", "ാണ്", "ുന്നത്", "ന്നത്", "ത്തത്", "ിച്ചത്", "ച്ചത്")))
+                )
+                strands_postposition = (next_token is not None and (next_form in POSTPOSITIONS or next_pos == "PSP"))
+                if is_attributive_modifier or strands_postposition:
+                    return "SUB_CONSTITUENT", f"Embedded subconstituent inside {_enclosing.chunk_type} '{_enclosing.text}' (Island constraint: Dravidian P-stranding/Left Branch violation)"
     except Exception as e:
         logger.debug(f"Phrase chunker evaluation: {e}")
 
@@ -427,8 +439,13 @@ def check_cleft_eligibility_structural(
                 break
     elif sentence_words:
         has_matrix_predicate = any(any(strip_punctuation(w).endswith(sfx) for sfx in predicate_suffixes) for w in sentence_words)
-    else:
-        has_matrix_predicate = True
+    if not has_matrix_predicate and sentence_words and len(sentence_words) >= 2:
+        # Check for verbless / equational sentence (Moag §2.5, §5.4, §11.2)
+        # In Malayalam, equational sentences have no overt verb; the final constituent
+        # serves as the nominal/adjectival predicate (e.g. കുറ്റകരം, ശരി, തെറ്റ്, പ്രധാനം).
+        last_word = strip_punctuation(sentence_words[-1])
+        if last_word != strip_punctuation(focus_word):
+            has_matrix_predicate = True
 
     if not has_matrix_predicate:
         return "PE", "Blocked: Sentence contains no matrix lexical verb or copular predicate"
@@ -860,7 +877,13 @@ class CleftPipeline:
         main_verb = sentence_ir.main_verb or ""
 
         # Check for existential suppletive predicate (ഉണ്ട്)
-        # Proceed with nominalization (ഉണ്ട് -> ഉള്ളത്, വനമുണ്ട് -> വനമുള്ളത്)
+        # Mohanan & Mohanan (1999): Reduced cleft replaces ഉണ്ട് with ആണ്
+        # e.g. പക്ഷെ അതിൽ പ്രശ്നമുണ്ട്. → പക്ഷെ അതിലാണ് പ്രശ്നം.
+        is_existential = self._is_existential_predicate(main_verb, sentence_ir)
+        existential_word = ""       # The word carrying ഉണ്ട് (e.g. പ്രശ്നമുണ്ട്)
+        stripped_existential = ""    # Base after stripping ഉണ്ട് (e.g. പ്രശ്നം)
+        if is_existential:
+            existential_word, stripped_existential = self._find_and_strip_existential(sentence_ir, focus_word)
 
         # Check for VP / Action focus (infinitive or verbal focus)
         if constituent_type == "VP_ACTION":
@@ -887,12 +910,18 @@ class CleftPipeline:
         # --------------------------------------------------------------
         normalized_verb = ""
 
-        if is_copular_pred:
+        if is_existential and existential_word:
+            # Mohanan & Mohanan reduced cleft: ഉണ്ട് is stripped entirely;
+            # the cleft marker ആണ് goes on the focus constituent.
+            # No verb nominalization needed — the existential is simply removed.
+            normalized_verb = stripped_existential
+            norm_status = "VALID"
+        elif is_copular_pred:
             # When the matrix predicate itself is copular, decopularize the background predicate
             # (e.g. രാമനാണ് -> രാമൻ, ആണ് -> "")
             normalized_verb = self._decopularize(main_verb)
             norm_status = "VALID"
-        elif main_verb and main_verb != focus_word:
+        elif main_verb and self._is_verbal_token(main_verb) and main_verb != focus_word:
             # Delegate strictly to VerbNormalizer for finite matrix verbs
             norm_res = self._verb_normalizer.normalize(main_verb)
             norm_status = norm_res.get("status", "UNRESOLVED")
@@ -911,24 +940,24 @@ class CleftPipeline:
                 )
 
             if norm_status != "VALID" or not norm_res.get("normalized"):
-                if not self._is_verbal_token(main_verb):
-                    normalized_verb = main_verb
-                else:
-                    return CleftResult(
-                        original_sentence=tagged_sentence,
-                        clean_sentence=clean_sentence,
-                        focus_word=focus_word,
-                        focus_token=focus_token,
-                        constituent_type=constituent_type,
-                        main_verb=main_verb,
-                        status="UNRESOLVED",
-                        phase="PHASE_2_NORMALIZATION",
-                        error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
-                    )
+                return CleftResult(
+                    original_sentence=tagged_sentence,
+                    clean_sentence=clean_sentence,
+                    focus_word=focus_word,
+                    focus_token=focus_token,
+                    constituent_type=constituent_type,
+                    main_verb=main_verb,
+                    status="UNRESOLVED",
+                    phase="PHASE_2_NORMALIZATION",
+                    error=f"Matrix verb normalization failed: {norm_res.get('failure_reason', '')}",
+                )
             else:
                 normalized_verb = norm_res["normalized"]
         else:
+            # In the absence of a verb (verbless/equational sentence, Moag §2.5, §5.4, §11.2),
+            # skip verb normalization completely.
             normalized_verb = ""
+            norm_status = "VALID"
 
         # --------------------------------------------------------------
         # PHASE 3: CLEFT STRUCTURE & COPULA GENERATION (Adding ആണ്)
@@ -986,39 +1015,68 @@ class CleftPipeline:
         # --------------------------------------------------------------
         # PHASE 4: VALIDATION & SENTENCE ASSEMBLY
         # --------------------------------------------------------------
-        # 1. Substitute the copula-attached focus constituent directly at the tagged position.
-        if re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്ന്", tagged_sentence):
-            cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്ന്", r"\1 എന്നാണ്", tagged_sentence, count=1)
-        elif re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്നു്", tagged_sentence):
-            cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്നു്", r"\1 എന്നാണ്", tagged_sentence, count=1)
-        elif "<FF>" in tagged_sentence:
-            cleft_sentence = re.sub(r"<FF>.*?(?:</FF>|<FF>)", copula_form, tagged_sentence, count=1)
+        # 1. Copular / Equational Sentence Handling (Moag §2.5, §5.4, §11.2)
+        is_pred_focus = bool(is_copular_pred and (focus_word == main_verb or self._is_copular_predicate(focus_word)))
+        if is_pred_focus:
+            # When focusing the predicate nominal in an equational sentence (e.g. അവൻ രാമനാണ് -> രാമനാണ് അവൻ; അരുൺ അഭിഭാഷകനാണ് -> അഭിഭാഷകനാണ് അരുൺ),
+            # the predicate nominal carrying 'ആണ്' is fronted to clause-initial position.
+            end_punct = ""
+            m_p = re.search(r"([.,!?;:]+)$", clean_sentence)
+            if m_p:
+                end_punct = m_p.group(1)
+
+            # Strip the focus constituent from the sentence
+            if "<FF>" in tagged_sentence:
+                remaining = re.sub(r"<FF>.*?(?:</FF>|<FF>)", "", tagged_sentence).strip()
+            else:
+                remaining = self._substitute(clean_sentence, focus_word, "").strip()
+
+            remaining = re.sub(r"</?FF>", "", remaining).strip()
+            remaining = re.sub(r"[.,!?;:]+$", "", remaining).strip()
+            remaining = re.sub(r"\s+", " ", remaining).strip()
+
+            cleft_sentence = f"{copula_form} {remaining}{end_punct}" if remaining else f"{copula_form}{end_punct}"
         else:
-            cleft_sentence = self._substitute(clean_sentence, focus_word, copula_form)
+            # Standard substitution: substitute the copula-attached focus constituent directly at the tagged position.
+            if re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്ന്", tagged_sentence):
+                cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്ന്", r"\1 എന്നാണ്", tagged_sentence, count=1)
+            elif re.search(r"<FF>.*?(?:</FF>|<FF>)\s+എന്നു്", tagged_sentence):
+                cleft_sentence = re.sub(r"<FF>(.*?)(?:</FF>|<FF>)\s+എന്നു്", r"\1 എന്നാണ്", tagged_sentence, count=1)
+            elif "<FF>" in tagged_sentence:
+                cleft_sentence = re.sub(r"<FF>.*?(?:</FF>|<FF>)", copula_form, tagged_sentence, count=1)
+            else:
+                cleft_sentence = self._substitute(clean_sentence, focus_word, copula_form)
 
-        # Remove any residual <FF> tags
-        cleft_sentence = re.sub(r"</?FF>", "", cleft_sentence).strip()
+            # Remove any residual <FF> tags
+            cleft_sentence = re.sub(r"</?FF>", "", cleft_sentence).strip()
 
-        # 2. Substitute the normalized main verb
-        if main_verb and normalized_verb is not None and main_verb != focus_word and main_verb != copula_form:
-            cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
-
-        # If decopularizing a copular predicate, ensure no trailing duplicate orphaned copula at sentence end
-        if is_copular_pred:
-            cleft_sentence = re.sub(r"\s+ആണ്([.,!?;:]*)$", r"\1", cleft_sentence)
+            # 2a. Existential ഉണ്ട് Reduced Cleft (Mohanan & Mohanan 1999):
+            # Strip ഉണ്ട് from the existential word and replace with the restored noun base.
+            # e.g. പ്രശ്നമുണ്ട് → പ്രശ്നം
+            if is_existential and existential_word and stripped_existential is not None:
+                cleft_sentence = self._substitute(cleft_sentence, existential_word, stripped_existential)
+            # 2b. Verb Normalization / Predicate Decopularization:
+            # If the sentence is copular and focus was on subject/adjunct, decopularize the background predicate
+            # (e.g. <FF>അരുൺ</FF> അഭിഭാഷകനാണ് -> അരുണാണ് അഭിഭാഷകൻ; <FF>അവൻ</FF> രാമനാണ് -> അവനാണ് രാമൻ).
+            elif is_copular_pred and normalized_verb and main_verb != focus_word and main_verb != copula_form:
+                cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
+                cleft_sentence = re.sub(r"\s+ആണ്([.,!?;:]*)$", r"\1", cleft_sentence)
+            elif main_verb and self._is_verbal_token(main_verb) and normalized_verb and normalized_verb != main_verb and main_verb != focus_word and main_verb != copula_form:
+                cleft_sentence = self._substitute(cleft_sentence, main_verb, normalized_verb)
 
         # Normalize whitespace and punctuation
         cleft_sentence = re.sub(r"\s+([.,!?;:])", r"\1", cleft_sentence)
         cleft_sentence = re.sub(r"\s+", " ", cleft_sentence).strip()
 
         # 3. Strict Cleft Completion Validation:
-        # Cleft will complete ONLY if 'aanu' is attached to the phrase AND the verb is normalised!
+        # Cleft will complete ONLY if 'aanu' is attached to the phrase AND (the verb is normalised OR sentence is verbless)!
         copula_suffixes = ("ാണ്", "ആണ്", "യാണ്", "മായാണ്", "ാൺ", "വാൺ", "യായിട്ടാണ്", "ആയിട്ടാണ്")
         has_copula = any(cop in copula_form for cop in copula_suffixes) and (
             copula_form in cleft_sentence or any(cop in cleft_sentence for cop in copula_suffixes)
         )
 
-        if is_copular_pred or not main_verb:
+        is_verbless = (not main_verb) or (not self._is_verbal_token(main_verb))
+        if is_copular_pred or is_verbless or is_existential:
             has_norm_verb = True
         else:
             has_norm_verb = bool(
@@ -1481,6 +1539,92 @@ class CleftPipeline:
     # ------------------------------------------------------------------
     # Copular predicate handling (Clause-level)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Existential ഉണ്ട് handling (Mohanan & Mohanan 1999)
+    # ------------------------------------------------------------------
+
+    def _is_existential_predicate(self, main_verb: str, sentence_ir=None) -> bool:
+        """
+        Check if the matrix predicate is existential ഉണ്ട് (uNTE).
+        Mohanan & Mohanan (1999): uNTE signals 'x EXIST (LOC y)'.
+
+        Matches:
+          - Standalone: ഉണ്ട്
+          - Agglutinated: പ്രശ്നമുണ്ട്, വനമുണ്ട്, കുട്ടിയുണ്ട്
+          - Past: ഉണ്ടായിരുന്നു
+        """
+        clean = strip_punctuation(main_verb).strip()
+        if not clean:
+            return False
+        # Standalone ഉണ്ട്
+        if clean == "ഉണ്ട്":
+            return True
+        # Agglutinated: Xമുണ്ട്, Xയുണ്ട്, etc.
+        if clean.endswith("മുണ്ട്") or clean.endswith("യുണ്ട്") or clean.endswith("ഉണ്ട്"):
+            # Exclude copular forms that happen to contain ഉണ്ട് (e.g. ഉണ്ടായിരുന്നു handled separately)
+            if not clean.endswith("ആണ്"):
+                return True
+        # Also check in the full sentence IR for any token ending with ഉണ്ട്
+        if sentence_ir and hasattr(sentence_ir, "tokens"):
+            for t in sentence_ir.tokens:
+                tf = strip_punctuation(t.form).strip()
+                if tf.endswith("മുണ്ട്") or tf.endswith("യുണ്ട്") or tf == "ഉണ്ട്":
+                    return True
+        return False
+
+    def _strip_existential(self, word: str) -> str:
+        """
+        Strip existential ഉണ്ട് from a word, restoring the nominal base.
+        Mohanan & Mohanan (1999): In reduced clefts, ഉണ്ട് is replaced by the cleft marker ആണ്.
+
+        Sandhi restoration rules:
+          പ്രശ്നമുണ്ട് → പ്രശ്നം   (മുണ്ട് → ം, anusvāra restoration)
+          കുട്ടിയുണ്ട് → കുട്ടി    (യുണ്ട് → strip യ glide)
+          ഉണ്ട്         → ""        (standalone existential)
+        """
+        if word == "ഉണ്ട്":
+            return ""
+        # മുണ്ട് → ം (anusvāra restoration: മ + ഉണ്ട് → മുണ്ട്)
+        if word.endswith("മുണ്ട്"):
+            return word[:-len("മുണ്ട്")] + "ം"
+        # യുണ്ട് → strip glide യ
+        if word.endswith("യുണ്ട്"):
+            return word[:-len("യുണ്ട്")]
+        # Generic ഉണ്ട് suffix
+        if word.endswith("ഉണ്ട്"):
+            return word[:-len("ഉണ്ട്")]
+        return word
+
+    def _find_and_strip_existential(self, sentence_ir, focus_word: str) -> tuple:
+        """
+        Find the token carrying existential ഉണ്ട് in the sentence and strip it.
+        Returns (existential_word, stripped_base) or ("", "") if not found.
+
+        The existential word is typically the main verb or a noun+ഉണ്ട് compound
+        that is NOT the focus word itself.
+        """
+        if not sentence_ir or not hasattr(sentence_ir, "tokens"):
+            return "", ""
+
+        # 1. Check main_verb first
+        main_verb = sentence_ir.main_verb or ""
+        clean_mv = strip_punctuation(main_verb).strip()
+        if clean_mv and (clean_mv.endswith("മുണ്ട്") or clean_mv.endswith("യുണ്ട്") or clean_mv == "ഉണ്ട്" or clean_mv.endswith("ഉണ്ട്")):
+            stripped = self._strip_existential(clean_mv)
+            return main_verb, stripped
+
+        # 2. Search tokens for agglutinated ഉണ്ട്
+        clean_focus = strip_punctuation(focus_word).strip()
+        for t in sentence_ir.tokens:
+            tf = strip_punctuation(t.form).strip()
+            if tf == clean_focus:
+                continue  # Skip the focus word itself
+            if tf.endswith("മുണ്ട്") or tf.endswith("യുണ്ട്") or tf == "ഉണ്ട്" or tf.endswith("ഉണ്ട്"):
+                stripped = self._strip_existential(tf)
+                return t.form, stripped
+
+        return "", ""
 
     def _is_verbal_token(self, word: str) -> bool:
         clean = strip_punctuation(word).strip()

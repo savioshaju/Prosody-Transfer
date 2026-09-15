@@ -182,7 +182,7 @@ def main():
             'first_mismatch_target_word': mismatch_info['first_mismatch_target_word'],
             'first_mismatch_output_word': mismatch_info['first_mismatch_output_word'],
             'output_cleft_emphasized': cleft_output,
-            'output_constituency_reordered': d['candidate_outputs'].get('constituency_reordered', ''),
+            'output_preverbal_reordered': d['candidate_outputs'].get('preverbal_reordered', ''),
         }
 
         if is_match:
