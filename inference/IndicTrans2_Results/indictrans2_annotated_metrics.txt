@@ -1,0 +1,12 @@
+Model: IndicTrans2 (dist-200M)
+Dataset: Annotated Data - Filtered Dataset.csv
+Sentence_Count: 100
+SacreBLEU_13a: 0.37
+SacreBLEU_Indic_Tokenized: 0.4
+SacreBLEU_FLORES: 10.61
+HF_BLEU: 0.0037
+chrF: 36.07
+chrF++: 32.87
+METEOR: 0.2685
+TER: 85.78
+COMET: 0.7088

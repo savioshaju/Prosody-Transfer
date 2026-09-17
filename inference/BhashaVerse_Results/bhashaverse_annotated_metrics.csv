@@ -1,0 +1,2 @@
+Model,Dataset,Sentence_Count,SacreBLEU_13a,SacreBLEU_Indic_Tokenized,SacreBLEU_FLORES,HF_BLEU,chrF,chrF++,METEOR,TER,COMET
+BhashaVerse (ltrciiith/bhashaverse),predictions.csv,100,3.33,3.47,15.26,0.0333,41.94,37.67,0.2652,87.88,0.8707

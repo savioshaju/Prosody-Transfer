@@ -1,0 +1,12 @@
+Model: Google Translate (deep-translator)
+Dataset: Annotated Data - Filtered Dataset.csv
+Sentence_Count: 100
+SacreBLEU_13a: 3.6
+SacreBLEU_Indic_Tokenized: 4.21
+SacreBLEU_FLORES: 18.63
+HF_BLEU: 0.036
+chrF: 44.46
+chrF++: 40.13
+METEOR: 0.3111
+TER: 83.8
+COMET: 0.8899

@@ -1,0 +1,12 @@
+Model: BhashaVerse (ltrciiith/bhashaverse)
+Dataset: predictions.csv
+Sentence_Count: 100
+SacreBLEU_13a: 3.33
+SacreBLEU_Indic_Tokenized: 3.47
+SacreBLEU_FLORES: 15.26
+HF_BLEU: 0.0333
+chrF: 41.94
+chrF++: 37.67
+METEOR: 0.2652
+TER: 87.88
+COMET: 0.8707

@@ -1,0 +1,2 @@
+Model,Dataset,Sentence_Count,SacreBLEU_13a,SacreBLEU_Indic_Tokenized,SacreBLEU_FLORES,HF_BLEU,chrF,chrF++,METEOR,TER,COMET
+Google Translate (deep-translator),Annotated Data - Filtered Dataset.csv,100,3.6,4.21,18.63,0.036,44.46,40.13,0.3111,83.8,0.8899
