@@ -6,7 +6,7 @@ PROJECT_ROOT = os.path.dirname(_curr_dir)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from aligner.standalone_syntactic_aligner import StandaloneSyntacticAligner
+from archive.standalone_syntactic_aligner import StandaloneSyntacticAligner
 from cleft.awesome_cleft_pipeline import AwesomeCleftPipeline
 
 

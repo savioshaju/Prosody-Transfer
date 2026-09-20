@@ -301,7 +301,7 @@ class MalayalamPhraseChunker:
                     next_p = token_poses[curr + 1] if curr + 1 < len(token_poses) else ""
                     next_is_adj = (
                         next_p.startswith("JJ")
-                        or any(next_f.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ", "ന്റെ", "ുടെ", "ിന്റെ"))
+                        or any(next_f.endswith(sfx) for sfx in ("യ", "ന്ന", "ത്ത", "ിയ", "ക്കൻ", "ന്റെ", "ുടെ", "ിന്റെ", "ലെ", "ിലെ", "യിലെ", "ത്തിലെ"))
                         or next_f in ("വടക്കൻ", "തെക്കൻ", "കിഴക്കൻ", "പടിഞ്ഞാറൻ", "ഈ", "ആ", "ഏത്", "നല്ല", "വലിയ", "ചെറിയ", "ഒരു", "രണ്ട്", "മൂന്ന്")
                     )
                     # If next word carries a case suffix (locative, dative, ablative, accusative)

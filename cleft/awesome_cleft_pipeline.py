@@ -50,7 +50,6 @@ from aligner.alignment_utils import extract_alignment_and_prosody, strip_punctua
 from aligner.tokenizer import tokenize_malayalam
 from aligner.simalign_wrapper import SimAlignerWrapper
 from aligner.morpho_simalign import MorphoSimAligner
-from aligner.standalone_syntactic_aligner import StandaloneSyntacticAligner
 from cleft.bhashik_focus_reorderer import BhashikFocusReorderer
 from cleft.preverbal_focus_reorderer import PreverbalFocusReorderer, is_wh_question
 from translators.bhashaverse_translator import BhashaverseTranslator
@@ -328,16 +327,14 @@ class AwesomeCleftPipeline:
         self.aligner_type = (aligner_type or "morpho").lower()
         default_model = "bert-base-multilingual-cased"
 
-        if self.aligner_type in ("syntactic", "standalone", "syntax"):
-            self.aligner = StandaloneSyntacticAligner()
-        elif self.aligner_type == "simalign":
-            self.aligner = SimAlignerWrapper(
+        if self.aligner_type in ("morpho_simalign", "morpho", "syntactic", "standalone", "syntax"):
+            self.aligner = MorphoSimAligner(
                 model_name=aligner_model if aligner_model else default_model,
                 matching_method=aligner_method,
                 device=device,
             )
-        elif self.aligner_type in ("morpho_simalign", "morpho"):
-            self.aligner = MorphoSimAligner(
+        elif self.aligner_type == "simalign":
+            self.aligner = SimAlignerWrapper(
                 model_name=aligner_model if aligner_model else default_model,
                 matching_method=aligner_method,
                 device=device,

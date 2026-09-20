@@ -1,0 +1,282 @@
+\chapter{Excluded Focus Strategies: Pragmatic Constraints and Structural Alternations}
+\label{chap:excluded_strategies}
+
+While this investigation implements syntactic clefting as the primary computational mechanism for cross-lingual emphasis transfer, natural Malayalam grammar possesses additional structural devices for conveying prominence. Specifically, traditional descriptive grammars and modern generative analyses document two prominent non-cleft focus strategies:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Preverbal Focus Placement via Word-Order Permutation:} Shifting a constituent into the immediately preverbal position \citep{moag1980malayalam,jayaseelan2001ip,jayaseelan2023dravidian}.
+    \item \textbf{Constituent Fronting and Scrambling:} Permuting adverbs, direct objects, or finite verbs to clause-initial position \citep{asher1997malayalam}.
+\end{enumerate}
+Despite their descriptive validity in human discourse, both strategies were deliberately excluded from our automated prosody transfer pipeline. This chapter details the syntactic mechanisms, information-structural properties, and empirical limitations of these two excluded methods, providing a rigorous linguistic justification for why syntactic clefting is the only viable, deterministic strategy for isolated, single-sentence cross-lingual emphasis projection.
+
+% =========================================================
+% SECTION 1: THE DISCOURSE-CONTEXT CONSTRAINT
+% =========================================================
+
+\section[Engineering Constraints on Processing]{Engineering Constraints: Sentence-Level vs. Discourse-Level Processing}
+
+In an automated machine translation and speech-to-speech cross-lingual prosody transfer pipeline, the system operates predominantly on isolated, sentence-level inputs without access to an ongoing, multi-turn conversational history or an overarching discourse model. 
+
+For an emphasis transfer mechanism to function reliably in this environment, it must satisfy three criteria:
+\begin{enumerate}
+    \item \textbf{Deterministic Interpretability:} The syntactic transformation must signal focus unambiguously to both human listeners and downstream acoustic models without requiring external pragmatic deduction.
+    \item \textbf{Context Independence:} The generated construction must not depend on prior dialogue turns (such as explicit wh-questions or corrective conversational prompts) to disambiguate marked focus from default canonical phrasing.
+    \item \textbf{Morphosyntactic Explicitness:} The focus domain must be delineated by overt inflectional or copular markers rather than relying solely on subtle pitch accents or flexible constituent ordering.
+\end{enumerate}
+
+As demonstrated in the subsequent sections, preverbal positioning and constituent fronting fail all three criteria when deployed on isolated sentences.
+
+% =========================================================
+% SECTION 2: PREVERBAL FOCUS POSITIONING
+% =========================================================
+
+\section{Excluded Strategy I: Preverbal Focus Placement}
+\label{sec:preverbal_focus}
+
+\subsection{Theoretical Framework: The IP-Internal Focus Phrase (\textit{FocP})}
+
+In generative analyses of South Asian and Dravidian languages, the position immediately preceding the finite matrix verb has long been identified as a specialized structural landing site for focused constituents. In his seminal work on Malayalam clause structure, \citet{jayaseelan2001ip,jayaseelan2023dravidian} argues that the clausal architecture of Malayalam contains an IP-internal Focus Phrase ($\text{FocP}$) situated immediately above the $v\text{P}$/$\text{VP}$ layer, flanked by an internal Topic Phrase ($\text{TopP}$):
+\begin{equation}
+    [\text{IP} \dots [\text{TopP} \dots [\text{FocP} \dots [\text{VP} \dots \text{V} ]]]]
+\end{equation}
+Under this analysis, an element undergoing focalization moves out of its base argument position and lands in the specifier of this preverbal $\text{FocP}$ ($\text{Spec, FocP}$). Because Malayalam is strictly verb-final in its underlying head directionality, the landing site immediately precedes the finite verb.
+
+\subsection{Descriptive Accounts from Moag (1980)}
+
+This generative configuration corresponds directly to the descriptive observations made by \citet[§5.4, p.~61]{moag1980malayalam}, who notes that an argument may be emphasized by shifting it out of its canonical position and placing it immediately before the verb. 
+
+\citet{moag1980malayalam} illustrates this structural alternation through dative indirect objects and locative/oblique arguments:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{Preverbal Placement of Dative Argument (\ml{മോഹനന്}):}\\
+    \textit{Canonical Order (Dative preceding Direct Object):}\\
+    \ml{ഞാൻ മോഹനന് ഒരു നാരങ്ങ കൊടുത്തു.}\\
+    \textit{ñaan mohanannŭ oru naaraṅṅa koṭuttŭ.}\\
+    ``I gave Mohanan an orange.''\\
+    \textit{Permuted Order (Dative shifted to Preverbal Focus Position):}\\
+    \ml{ഞാൻ ഒരു നാരങ്ങ \textbf{മോഹനന്} കൊടുത്തു.}\\
+    \textit{ñaan oru naaraṅṅa \textbf{MOHANAN-ə} koDuttu.}\\
+    ``I gave an orange to \textbf{MOHANAN}.''
+    
+    Here, the dative noun phrase \ml{മോഹനന്} (\textit{MOHANAN-ə}) is moved from its canonical pre-object position to the immediately preverbal slot preceding \ml{കൊടുത്തു} (\textit{koDuttu}), thereby receiving narrow focus.
+
+    \item \textbf{Preverbal Placement of Oblique Dative (\ml{ഈ മരത്തിന്}):}\\
+    \ml{ഞാൻ വെള്ളം \textbf{ഈ മരത്തിന്} ഒഴിച്ചിട്ടില്ല.}\\
+    \textit{ñaan weLLam \textbf{II MARATT-INə} ozhicc-iTT-illa.}\\
+    ``I haven't poured water to \textbf{THIS TREE}.''
+    
+    In this construction, the oblique phrase \ml{ഈ മരത്തിന്} (\textit{II MARATT-INə}) is moved past the direct object \ml{വെള്ളം} (\textit{weLLam}) into the preverbal position, placing contrastive emphasis on the specific recipient tree.
+\end{enumerate}
+
+\subsection{The Inherent Ambiguity of Canonical SOV Word Order}
+
+While the permutation in Moag's examples creates an identifiable reordering when two internal arguments exchange places (e.g., placing the Indirect Object after the Direct Object), the preverbal strategy breaks down completely in simple transitive and intransitive clauses.
+
+Consider the canonical Malayalam declarative sentence:
+\begin{center}
+    \ml{ഞാൻ സ്കൂളിൽ പോയി.}\\
+    \textit{ñaan skuulil pooyi.}\\
+    ``I went to school.''
+\end{center}
+
+In standard Malayalam syntax, the canonical constituent order is Subject--Complement--Verb ($\text{S--Obl--V}$). Consequently, the locative complement \ml{സ്കൂളിൽ} (\textit{skuulil} — ``to school'') \textbf{already occupies the immediate preverbal slot by default}.
+
+When this sentence is encountered in isolation, the preverbal position of \ml{സ്കൂളിൽ} is structurally and pragmatically ambiguous:
+\begin{itemize}[noitemsep]
+    \item \textbf{Reading A (Broad / All-New Information Focus):} The entire utterance is new information answering the broad question \textit{``What happened?''}. No individual constituent is focused.
+    \item \textbf{Reading B (Narrow Locative Focus):} The locative complement is narrowly focused, answering the specific question \textit{``Where did you go?''}.
+    \item \textbf{Reading C (Predicate Focus):} The verbal complex is focused, answering \textit{``What did you do?''}.
+\end{itemize}
+
+Because Malayalam lacks overt morphological case shifts to distinguish a constituent sitting in canonical complement position from one sitting in Spec, $\text{FocP}$, an isolated sentence like \ml{ഞാൻ സ്കൂളിൽ പോയി} cannot be deterministically recognized as an emphatic or non-emphatic utterance. To interpret \ml{സ്കൂളിൽ} as carrying marked focus, a human listener must rely entirely on external contextual cues (such as a preceding conversational question) or expressive acoustic cues (prosodic pitch excursion and duration). In an automated text-based post-editing pipeline, relying on preverbal positioning produces output that is indistinguishable from a neutral, unmarked sentence.
+
+\subsection{Empirical Evidence from Dravidian Scrambling Acquisition}
+
+This context dependency is corroborated by psycholinguistic and acquisition research in Dravidian syntax. In her comprehensive experimental study on word-order permutation, \citet{mathew2017acquisition} investigated how native speakers interpret scrambled and preverbal constituents in Dravidian languages (specifically Tamil and Malayalam). 
+
+Mathew's findings demonstrate that:
+\begin{enumerate}[noitemsep]
+    \item Word order variation is not an autonomous marker of focus; rather, native speakers assign a focal interpretation to a preverbal or scrambled constituent \textbf{only when supported by a rich, explicit discourse context} (such as contrastive wh-questions or picture-verification tasks).
+    \item When scrambled sentences are presented in isolation without pragmatic framing, adult native speakers default to processing them as stylistic topicalization or register-conditioned variants rather than narrow focus.
+    \item Children acquire canonical SOV order long before they master the pragmatic constraints governing preverbal focus, confirming that preverbal focus requires an active pragmatic-discourse interface.
+\end{enumerate}
+
+Consequently, without integrating a full conversational dialogue tracker, an NLP system cannot employ preverbal placement as a deterministic focus generator.
+
+% =========================================================
+% SECTION 3: PRO-DROP & OVERT VS. COVERT ARGUMENTS
+% =========================================================
+
+\section{Radical Pro-Drop and the Overt vs. Covert Argument Dilemma}
+\label{sec:pro_drop}
+
+\subsection{Cross-Lingual Typological Asymmetry}
+
+English and Malayalam occupy diametrically opposed positions regarding argument realization:
+\begin{itemize}
+    \item \textbf{English (Non-Pro-Drop Language):} English is a non-null-subject language. Syntactic arguments (subjects and objects) must be realized \textbf{overtly}, even when they carry old, given, or non-referential information:
+    \begin{center}
+        \textit{``Where did you go?'' $\rightarrow$ ``\textbf{I} went to school.''} (\textit{*``Went to school''})
+    \end{center}
+    \item \textbf{Malayalam (Radical Pro-Drop Language):} Malayalam permits extensive covert argument omission (radical pro-drop). Any constituent that represents backgrounded, topical, or contextually accessible information is routinely dropped from the surface string:
+    \begin{center}
+        \ml{എവിടെ പോയി?} (\textit{eviṭe pōyi?} — ``Where [did you] go?'')\\
+        $\rightarrow$ \ml{സ്കൂളിൽ.} (\textit{skūḷil.} — ``[To] school.'') \quad \textit{or} \quad \ml{സ്കൂളിൽ പോയി.} (\textit{skūḷil pōyi.} — ``[I] went to school.'')
+    \end{center}
+\end{itemize}
+
+\subsection{The Translation Pipeline Disconnect}
+
+In natural spoken Malayalam, when a speaker desires to focus a single constituent, they do not merely scramble a fully populated sentence; rather, \textbf{they drop the given arguments covertly, leaving only the focused constituent overt}:
+\begin{equation}
+    [\text{Context: Given } \text{Subject} = \text{\ml{ഞാൻ}}] \quad \Longrightarrow \quad \emptyset_{\text{Subj}} + \text{\ml{സ്കൂളിൽ}}_{\text{[+Focus]}} + \text{\ml{പോയി}}_{\text{Verb}}
+\end{equation}
+In this spoken configuration, the surviving overt constituent (\ml{സ്കൂളിൽ}) naturally commands perceptual prominence because it is not competing with other overt lexical tokens.
+
+However, standard machine translation engines (e.g., Google Translate, NLLB) translate the full, overt English sentence into a complete, overt Malayalam sentence:
+\begin{center}
+    \textit{``I went to school.''} $\quad \Longrightarrow \quad$ \ml{ഞാൻ സ്കൂളിൽ പോയി.}
+\end{center}
+The translated target string contains all arguments in explicit overt form. 
+
+If our post-editing engine were to rely on word reordering or argument omission, it would face an intractable dilemma:
+\begin{enumerate}[noitemsep]
+    \item \textbf{Dropping overt arguments arbitrarily} risks deleting essential semantic content when translating out-of-context sentences, potentially producing fragmented or ungrammatical text.
+    \item \textbf{Permuting full overt arguments} (e.g., shuffling Subject, Object, and Oblique tokens) preserves all tokens but fails to create the natural prominence achieved in native spoken speech, leaving the resulting sentence stylistically awkward and ambiguous.
+\end{enumerate}
+
+Syntactic clefting resolves this tension completely: by attaching the overt copula \ml{ആണ്} (\textit{āṇŭ}) to the targeted constituent and nominalising the verb with \ml{-ത്} (\textit{-atŭ}), clefting explicitly isolates and highlights the focal constituent \textbf{even when all other arguments remain fully overt in the sentence}.
+
+% =========================================================
+% SECTION 4: CONSTITUENT FRONTING & SCRAMBLING
+% =========================================================
+
+\section[Excluded Strategy II: Constituent Fronting]{Excluded Strategy II: Constituent Fronting and Scrambling}
+\label{sec:constituent_fronting}
+
+The second major excluded strategy is constituent fronting, in which a non-subject argument or adjunct is moved to the clause-initial position.
+
+\subsection{Descriptive Evidence from Asher \& Kumari (1997)}
+
+In their comprehensive descriptive grammar of Malayalam, \citet[§1.11, pp.~77--80]{asher1997malayalam} analyze three primary forms of constituent fronting:
+
+\subsubsection{1. Adverb Fronting}
+In neutral declarative sentences, temporal and manner adverbs typically appear in an internal position between the subject and the verb. Fronting the adverb to pre-subject position implies emphasis:
+\begin{enumerate}[label=\textbf{\alph*.}]
+    \item \textbf{Neutral Word Order:}\\
+    \ml{ഞാൻ ഇന്നലെ വന്നു.}\\
+    \textit{njaan innale vannu.}\\
+    ``I came yesterday.''
+    
+    \item \textbf{Fronted / Emphasized Order:}\\
+    \ml{\textbf{ഇന്നലെ} ഞാൻ വന്നു.}\\
+    \textit{\textbf{innale} njaan vannu.}\\
+    ``\textbf{Yesterday} I came.''
+\end{enumerate}
+
+\paragraph{Sentence Connector Exceptions:} Importantly, \citet{asher1997malayalam} document a major class of exceptions: sentence connectors naturally occur in clause-initial position by default and \textbf{do not imply emphasis}:
+\begin{center}
+\begin{tabular}{lll}
+    \toprule
+    \textbf{Connector} & \textbf{Transliteration} & \textbf{English Gloss} \\
+    \midrule
+    \ml{പിന്നെ} & \textit{pinne} & ``then'' / ``afterwards'' \\
+    \ml{എന്നിട്ട്} & \textit{enniṭṭŭ} & ``and then'' \\
+    \ml{അപ്പോൾ} & \textit{appōḷ} & ``then'' / ``at that time'' \\
+    \ml{അതിനാൽ} & \textit{atināl} & ``so'' / ``therefore'' \\
+    \ml{നേരെ മറിച്ച്} & \textit{nēre mariccŭ} & ``on the other hand'' \\
+    \ml{എന്നിട്ടും} & \textit{enniṭṭum} & ``still'' / ``nevertheless'' \\
+    \ml{അതിനു പുറമേ} & \textit{atinnŭ puṟamē} & ``apart from that'' / ``moreover'' \\
+    \ml{എന്നാൽ} & \textit{ennāl} & ``if so'' / ``however'' \\
+    \ml{അങ്ങനെയിരിക്കെ} & \textit{aṅṅine irikke} & ``meanwhile'' \\
+    \bottomrule
+\end{tabular}
+\end{center}
+Any automated rule attempting to infer emphasis from sentence-initial positioning would produce false positives on every sentence beginning with one of these discourse connectives.
+
+\subsubsection{2. Direct Object Fronting}
+Moving a direct object to clause-initial position emphasizes the constituent, often conveying totality, exhaustiveness, or unexpectedness:
+\begin{enumerate}[label=\textbf{\alph*.}]
+    \item \textbf{Neutral Order:}\\
+    \ml{പശു പുല്ല് മുഴുവൻ തിന്നു.}\\
+    \textit{paju pulla muzhuvan tinnu.}\\
+    ``The cow ate all the grass.''
+    
+    \item \textbf{Fronted Object:}\\
+    \ml{\textbf{പുല്ല് മുഴുവൻ} പശു തിന്നല്ലോ!}\\
+    \textit{\textbf{pulla muzhuvan} paju tinnaloo!}\\
+    ``\textbf{All the grass} the cow ate!''
+\end{enumerate}
+In this construction, fronting the quantified direct object \ml{പുല്ല് മുഴുവൻ} (\textit{pulla muzhuvan} — ``all the grass'') highlights the complete consumption of the grass, expressing surprise or emphatic finality.
+
+\subsubsection{3. Verb Fronting}
+Movement of the finite verb to sentence-initial position emphasizes the fact or action expressed by the predicate itself:
+\begin{center}
+    \ml{\textbf{വന്നു}, അവൻ.}\\
+    \textit{\textbf{vannu}, avan.}\\
+    ``He \textbf{came} [indeed].''
+\end{center}
+This post-verbal subject construction is restricted to colloquial, emotive, and highly expressive speech.
+
+\subsection{Why Fronting Fails as an Automated Focus Engine}
+
+Despite its intuitive appeal, constituent fronting was rejected for our automated pipeline due to two critical linguistic reasons:
+
+\begin{enumerate}
+    \item \textbf{Pragmatic Context Dependency (The \textit{``Innale''} Ambiguity):}\\
+    As illustrated in the user study, the fronted utterance \ml{ഇന്നലെ ഞാൻ വന്നു} (\textit{innale njaan vannu}) is perceived as narrow, contrastive focus \textbf{only if an explicit contrastive context is active}:
+    \begin{center}
+        \ml{ഇന്നല്ല, ഇന്നലെയാണ് ഞാൻ വന്നത്.}\\
+        \textit{innalla, innale-y-āṇŭ ñān vannatŭ.}\\
+        ``[It was] not today, but \textbf{yesterday} that I came.''
+    \end{center}
+    In the absence of such a contrastive dialogue prompt, fronting an adverb is interpreted by native listeners as simple \textbf{topicalization} (establishing a temporal frame or setting the topic of discourse) rather than focus. A listener hearing \ml{ഇന്നലെ ഞാൻ വന്നു} in an isolated recording will typically perceive ``yesterday'' as the topic about which an assertion is made, not the focal point of the assertion.
+
+    \item \textbf{Lack of Morphosyntactic Disambiguation:}\\
+    Fronting alters constituent order without modifying word boundaries or inflectional morphology. Because Dravidian languages permit relatively free word order (scrambling) for stylistic and rhythmical reasons, left-peripheral fronting does not provide downstream acoustic models or synthesis engines with an unambiguous signal that focus must be realized phonetically.
+\end{enumerate}
+
+% =========================================================
+% SECTION 5: COMPARATIVE SYNTHESIS
+% =========================================================
+
+\section{Comparative Synthesis: Why Clefting Was Selected}
+\label{sec:comparative_synthesis}
+
+To consolidate the theoretical and practical reasons for selecting clefting over word-order permutation and fronting, Table~\ref{tab:focus_strategy_comparison} presents a multi-dimensional comparative matrix evaluating the three focus strategies across six critical engineering and linguistic criteria.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Systematic Comparison of Focus Realization Strategies in Malayalam}
+\label{tab:focus_strategy_comparison}
+\begin{adjustbox}{width=\textwidth}
+\begin{tabular}{>{\RaggedRight}p{3.8cm}>{\RaggedRight}p{4.2cm}>{\RaggedRight}p{4.2cm}>{\RaggedRight\arraybackslash}p{4.2cm}}
+\toprule
+\textbf{Evaluation Dimension} & \textbf{Syntactic Clefting (Adopted)} & \textbf{Preverbal Placement (Excluded)} & \textbf{Constituent Fronting (Excluded)} \\
+\midrule
+\textbf{Morphological Marking} & \textbf{Overt:} Suffixation of \ml{ആണ്} (\textit{āṇŭ}) and nominalisation with \ml{-ത്} (\textit{-atŭ}). & \textbf{None:} Relies purely on linear adjacency to finite verb. & \textbf{None:} Relies purely on clause-initial displacement. \\
+\addlinespace[4pt]
+\textbf{Context Independence} & \textbf{High:} Unambiguous focus even in single, isolated sentences. & \textbf{Low:} Indistinguishable from canonical SOV without prior context. & \textbf{Low:} Ambiguous between focus and topicalization. \\
+\addlinespace[4pt]
+\textbf{SOV Ambiguity Resistance} & \textbf{Complete:} Nominalised verb removes canonical predicate structure. & \textbf{Fails:} Preverbal complement is already the default position. & \textbf{Partial:} Confounded by sentence connectors (\ml{പിന്നെ, അതിനാൽ}). \\
+\addlinespace[4pt]
+\textbf{Pro-Drop Resilience} & \textbf{High:} Operates robustly even when all arguments are overt. & \textbf{Low:} Natural focus requires dropping given arguments. & \textbf{Low:} Requires discourse tracking to determine argument drop. \\
+\addlinespace[4pt]
+\textbf{Deterministic Rule Synthesis} & \textbf{Yes:} Conditioned by well-defined morphophonemic sandhi rules. & \textbf{No:} Scrambling options grow exponentially with arguments. & \textbf{No:} Indeterminate landing sites for oblique phrases. \\
+\addlinespace[4pt]
+\textbf{Acoustic/Prosodic Salience} & \textbf{Guaranteed:} Copular boundary forces pitch accent and duration. & \textbf{Weak:} Acoustic models frequently flatten preverbal arguments. & \textbf{Weak:} Clause-initial position often assigned baseline declination. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\subsection{Conclusion}
+
+As demonstrated by the comparative analysis:
+\begin{itemize}[noitemsep]
+    \item \textbf{Preverbal placement} \citep{moag1980malayalam,jayaseelan2001ip} cannot be adopted because in standard SOV clauses (such as \ml{ഞാൻ സ്കൂളിൽ പോയി}), the complement is already in preverbal position, rendering focus undetectable without conversational context.
+    \item \textbf{Constituent fronting} \citep{asher1997malayalam} cannot be adopted because sentence-initial movement is frequently interpreted as topic-framing rather than focus, and is confounded by sentence-initial discourse connectors (\ml{പിന്നെ, എന്നിട്ട്, അപ്പോൾ}, etc.).
+    \item \textbf{Argument ellipsis (pro-drop)} cannot be implemented safely on isolated sentence translations without risking the deletion of vital semantic content.
+\end{itemize}
+
+By contrast, \textbf{syntactic clefting} introduces overt, unambiguous morphological morphology (\ml{-ആണ്} and \ml{-ത്}) that explicitly marks the targeted constituent for focus, guarantees semantic interpretability in isolated sentences, and provides the downstream text-to-speech engine with an unmistakable structural trigger for prosodic emphasis. For these reasons, clefting was chosen as the exclusive focus mechanism for our automated prosody transfer framework.

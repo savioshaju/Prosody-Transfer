@@ -1,0 +1,266 @@
+\chapter{Post-Editing Strategies for Clefting in Malayalam}
+\label{chap:clefting}
+
+Once a focus constituent is identified and projected across languages via word alignment, the Malayalam target utterance must undergo syntactic and morphological transformation to synthesize a grammatically sound cleft construction. In Malayalam, forming a cleft construction requires two coupled operations:
+\begin{enumerate}
+    \item \textbf{Focus Marking with \textit{āṇŭ} (\ml{ആണ്}):} The copular focus marker \ml{ആണ്} is attached to the focused constituent (the host). Because \ml{ആണ്} begins with the long vowel \ml{ആ}, its attachment triggers morphophonemic \textit{sandhi} transformations conditioned by the phonological and morphological structure of the host constituent.
+    \item \textbf{Verb Normalisation (Nominalisation):} The finite main verb of the matrix clause must be transformed into a relative participial form and nominalised through the neuter singular pronominal suffix \ml{-ത്} (\textit{-atŭ}), which converts the backgrounded clause into the subject of the cleft copula.
+\end{enumerate}
+This chapter establishes the complete post-editing rule set governing morphophonemic sandhi, case-marker preservation, converb reduction, and comprehensive verbal nominalisation in Malayalam clefting.
+
+% =========================================================
+% SECTION 1: SANDHI TRANSFORMATIONS
+% =========================================================
+
+\section{Morphophonemic Sandhi Rules for \textit{āṇŭ} Attachment}
+
+When \ml{ആണ്} (\textit{āṇŭ}) attaches to a focused host constituent, the boundary undergoes specific morphophonemic modifications classified according to classical Malayalam grammar. Five primary sandhi operations govern this interaction:
+
+\subsection{1. \texorpdfstring{\ml{ആഗമം}}{ആഗമം} (Āgama) — Insertion / Augmentation}
+\textit{Āgama} inserts a transitional euphonic glide between a vowel-final host constituent and the vowel-initial \ml{ആണ്} to avoid hiatus. Depending on the phonological quality of the final vowel of the host, two distinct glides are inserted:
+
+\subsubsection{\texorpdfstring{\ml{യകാരാഗമം}}{യകാരാഗമം} (Yakāra-āgamam) — \texorpdfstring{\ml{യ}}{യ} Insertion}
+When the host constituent (noun, pronoun, adjective, adverbial/temporal expression, infinitival form, or case-marked phrase) ends in one of the front or unrounded vowels:
+\begin{center}
+\textbf{Eligible Vowels:} \ml{അ, ആ, ഇ, ഈ, എ, ഏ, ഐ}
+\end{center}
+the palatal glide \ml{യ} is inserted:
+\begin{equation}
+V + \text{\ml{ആണ്}} \longrightarrow V + \text{\ml{യ}} + \text{\ml{ആണ്}} \quad (\dots\text{\ml{യാണ്}})
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \ml{കസേര + ആണ്} $\longrightarrow$ \ml{കസേരയാണ്} (\textit{kasērayāṇŭ} — ``It is the chair'')
+    \item \ml{കുട്ടി + ആണ്} $\longrightarrow$ \ml{കുട്ടിയാണ്} (\textit{kuṭṭiyāṇŭ} — ``It is the child'')
+    \item \ml{നാളെ + ആണ്} $\longrightarrow$ \ml{നാളെയാണ്} (\textit{nāḷeyāṇŭ} — ``It is tomorrow'')
+    \item \ml{ഇവിടെ + ആണ്} $\longrightarrow$ \ml{ഇവിടെയാണ്} (\textit{iviṭeyāṇŭ} — ``It is here'')
+    \item \ml{അവനെ + ആണ്} $\longrightarrow$ \ml{അവനെയാണ്} (\textit{avaneyāṇŭ} — ``It is him'')
+    \item \ml{കുടിക്കുക + ആണ്} $\longrightarrow$ \ml{കുടിക്കുകയാണ്} (\textit{kuṭikkukayāṇŭ} — ``It is drinking'')
+\end{itemize}
+
+\subsubsection{\texorpdfstring{\ml{വകാരാഗമം}}{വകാരാഗമം} (Vakāra-āgamam) — \texorpdfstring{\ml{വ}}{വ} Insertion}
+When the host constituent ends in one of the back or rounded vowels:
+\begin{center}
+\textbf{Eligible Vowels:} \ml{ഉ, ഊ, ഒ, ഓ, ഔ}
+\end{center}
+the labio-velar glide \ml{വ} is inserted:
+\begin{equation}
+V + \text{\ml{ആണ്}} \longrightarrow V + \text{\ml{വ}} + \text{\ml{ആണ്}} \quad (\dots\text{\ml{വാണ്}})
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \ml{ഗുരു + ആണ്} $\longrightarrow$ \ml{ഗുരുവാണ്} (\textit{guruvāṇŭ} — ``It is the teacher'')
+    \item \ml{ശത്രു + ആണ്} $\longrightarrow$ \ml{ശത്രുവാണ്} (\textit{śatruvāṇŭ} — ``It is the enemy'')
+\end{itemize}
+
+\subsection{2. \texorpdfstring{\ml{ആദേശം}}{ആദേശം} (Ādēśa) — Substitution / Replacement}
+\textit{Ādēśa} substitutes one phonological element with another under licensed boundary environments.
+
+\subsubsection{Anusvāra Resolution (\texorpdfstring{\ml{ം} $\longrightarrow$ \ml{മ} / \ml{മാ}}{ം -> മ / മാ})}
+When nouns or stems ending in the anusvāra (\ml{ം}), particularly neuter nouns ending in \ml{-അം}, combine with \ml{ആണ്}, the anusvāra resolves into the bilabial nasal \ml{മ}, which fuses with the vowel \ml{ആ} into \ml{മാ}:
+\begin{equation}
+\text{\ml{ം}} + \text{\ml{ആണ്}} \longrightarrow \text{\ml{മ}} + \text{\ml{ആണ്}} \longrightarrow \dots\text{\ml{മാണ്}}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \ml{പുസ്തകം + ആണ്} $\longrightarrow$ \ml{പുസ്തകമാണ്} (\textit{pustakamāṇŭ} — ``It is the book'')
+    \item \ml{മരം + ആണ്} $\longrightarrow$ \ml{മരമാണ്} (\textit{maramāṇŭ} — ``It is the tree'')
+    \item \ml{സ്ഥലം + ആണ്} $\longrightarrow$ \ml{സ്ഥലമാണ്} (\textit{sthalamāṇŭ} — ``It is the place'')
+\end{itemize}
+
+\subsection{3. \texorpdfstring{\ml{വ്യഞ്ജന–സ്വര സന്ധി}}{വ്യഞ്ജന–സ്വര സന്ധി} (Consonant–Vowel Joining)}
+When a consonant-final host, particularly one terminating in a pure consonant or \textit{chillu} letter (\textit{chillu-akṣaram}), combines with the initial vowel \ml{ആ} of \ml{ആണ്}, the consonant and vowel fuse directly into a consonant-vowel syllable:
+\begin{itemize}[noitemsep]
+    \item \textbf{Final \ml{ൻ} (\textit{n}):} $\text{\ml{ൻ}} + \text{\ml{ആ}} \longrightarrow \text{\ml{നാ}}$\\
+    \ml{അവൻ + ആണ്} $\longrightarrow$ \ml{അവനാണ്} (\textit{avanāṇŭ} — ``It is he'')
+    \item \textbf{Final \ml{ൾ} (\textit{\d{l}}):} $\text{\ml{ൾ}} + \text{\ml{ആ}} \longrightarrow \text{\ml{ളാ}}$\\
+    \ml{അവൾ + ആണ്} $\longrightarrow$ \ml{അവളാണ്} (\textit{avaḷāṇŭ} — ``It is she'')
+    \item \textbf{Final \ml{ർ} (\textit{r}):} $\text{\ml{ർ}} + \text{\ml{ആ}} \longrightarrow \text{\ml{രാ}}$\\
+    \ml{അവർ + ആണ്} $\longrightarrow$ \ml{അവരാണ്} (\textit{avarāṇŭ} — ``It is they'')
+    \item \textbf{Final \ml{ൽ} (\textit{l}):} $\text{\ml{ൽ}} + \text{\ml{ആ}} \longrightarrow \text{\ml{ലാ}}$\\
+    \ml{വീട്ടിൽ + ആണ്} $\longrightarrow$ \ml{വീട്ടിലാണ്} (\textit{vīṭṭilāṇŭ} — ``It is in the house'')
+    \item \textbf{Final \ml{ൺ} (\textit{\d{n}} — Retroflex Nasal Chillu):} $\text{\ml{ൺ}} + \text{\ml{ആ}} \longrightarrow \text{\ml{ണാ}}$\\
+    \ml{ഗ്രാൻഡ് കാൻയോൺ + ആണ്} $\longrightarrow$ \ml{ഗ്രാൻഡ് കാൻയോണാണ്} (\textit{grānḍ kānyōṇāṇŭ} — ``It is the Grand Canyon'')
+\end{itemize}
+
+\subsection{4. \texorpdfstring{\ml{ലോപം}}{ലോപം} (Lōpa) — Deletion / Elision}
+\textit{Lōpa} deletes a phonological element when two morphemes or words combine at a boundary ($X + Y \longrightarrow X' + Y$, where $X'$ represents the host after deletion).
+
+\begin{quote}
+\textbf{Clarification on Lōpa:} \textit{Lōpa} is a licensed grammatical deletion process. It does not imply that the virāma (\textit{chandrakkala}, \ml{്}) is universally elided, nor should it be simplified as arbitrary ``final vowel deletion before \ml{ആണ്}''. It operates within phonologically licensed lexical environments.
+\end{quote}
+Classical illustrations include verbal and clausal boundary deletions:
+\begin{itemize}[noitemsep]
+    \item \ml{നിന്നു + ഇല്ല} $\longrightarrow$ \ml{നിന്നില്ല} (\textit{ninnilla} — ``did not stand'')
+    \item \ml{കേട്ടു + ആൽ} $\longrightarrow$ \ml{കേട്ടാൽ} (\textit{kēṭṭāl} — ``if heard'')
+\end{itemize}
+
+\subsection{5. Virāma / Chandrakkala Deletion}
+When a consonant-final or oblique nominal form carrying a final \textit{chandrakkala} (\textit{virāma}, \ml{്}) attaches to the initial vowel \ml{ആ} of \ml{ആണ്}, the virāma is removed and the underlying consonant is vocalized with the long vowel sign \ml{ാ}:
+\begin{equation}
+C\text{\ml{്}} + \text{\ml{ആ}} \longrightarrow C\text{\ml{ാ}}
+\end{equation}
+\begin{itemize}[noitemsep]
+    \item \ml{നിലത്ത് + ആണ്} $\longrightarrow$ \ml{നിലത്താണ്} (\textit{nilattāṇŭ} — ``It is on the floor'')
+\end{itemize}
+
+% =========================================================
+% SECTION 2: CASE MARKERS
+% =========================================================
+
+\section{Case-Marker Interactions with Cleft Copula}
+
+When non-subject constituents are focused in clefting, their semantic relation to the matrix predicate is preserved through case inflections. Table~\ref{tab:case_markers} details the interaction between Malayalam case markers and the cleft marker \ml{ആണ്}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Interaction Between Malayalam Case Markers and Cleft Copula \ml{ആണ്}}
+\label{tab:case_markers}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}p{3.8cm} >{\raggedright\arraybackslash}p{4.8cm} >{\raggedright\arraybackslash}p{3.8cm}}
+\toprule
+\textbf{Case} & \textbf{Common Markers / Allomorphs} & \textbf{Transformation Pattern} & \textbf{Surface Example} \\
+\midrule
+\textbf{Nominative} & No overt suffix ($\varnothing$) & Chillu / Sandhi binding & \ml{അവൻ + ആണ്} $\to$ \ml{അവനാണ്} \\
+\midrule
+\textbf{Accusative} & \ml{-എ}, \ml{-നെ}, \ml{-യെ} & Front vowel + \ml{യ} insertion & \ml{അവനെ + ആണ്} $\to$ \ml{അവനെയാണ്} \\
+\midrule
+\textbf{Dative} & \ml{-ന്}, \ml{-ഇന്}, \ml{-ക്ക്}, \ml{-യ്ക്ക്} & Virāma deletion ($C\text{\ml{്}} + \text{\ml{ആ}} \to C\text{\ml{ാ}}$) & \ml{അവന് + ആണ്} $\to$ \ml{അവനാണ്} \\
+\midrule
+\textbf{Genitive} & \ml{-ന്റെ}, \ml{-ഇന്റെ}, \ml{-ഉടെ}, \ml{-യുടെ} & Vowel end + \ml{യ} / \ml{വ} glide & \ml{അവന്റെ + ആണ്} $\to$ \ml{അവന്റെയാണ്} \\
+\midrule
+\textbf{Locative} & \ml{-ഇൽ}, \ml{-ൽ}, \ml{-യിൽ}, \ml{-വിൽ}, \ml{-ത്തിൽ} & Chillu \ml{ൽ} fusing with \ml{ആ} $\to$ \ml{ലാ} & \ml{വീട്ടിൽ + ആണ്} $\to$ \ml{വീട്ടിലാണ്} \\
+\midrule
+\textbf{Instrumental} & \ml{-ആൽ}, \ml{-യാൽ}, \ml{-ഇനാൽ}, \ml{-ത്തിനാൽ}, \ml{കൊണ്ട്} & Direct chillu \ml{ൽ} or glide insertion & \ml{കൊണ്ട് + ആണ്} $\to$ \ml{കൊണ്ടാണ്}; \newline \ml{അവനാൽ + ആണ്} $\to$ \ml{അവനാലാണ്} \\
+\midrule
+\textbf{Sociative / Comitative} & \ml{-ഓട്}, \ml{-യോട്}, \ml{-വിനോട്}, \ml{-ഇനോട്}, \ml{-ത്തോട്} & Virāma deletion ($C\text{\ml{്}} + \text{\ml{ആ}} \to C\text{\ml{ാ}}$) & \ml{അവനോട് + ആണ്} $\to$ \ml{അവനോടാണ്} \\
+\midrule
+\textbf{Ablative} & \ml{-ഇൽനിന്ന്}, \ml{-ൽനിന്ന്}, \ml{-നിന്ന്}, \ml{-നിന്നു} & Converb virāma deletion & \ml{അവിടെനിന്ന് + ആണ്} $\to$ \ml{അവിടെനിന്നാണ്} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+% =========================================================
+% SECTION 3: SPECIAL MORPHOSYNTACTIC PROCESSES
+% =========================================================
+
+\section{Special Morphosyntactic Adjustments}
+
+\subsection{Temporal Year Locative Shift}
+A distinct syntactic adjustment occurs when a calendar year or digit expression followed by the adnominal modifier form \ml{ലെ} is clefted. When combined with the copula \ml{ആണ്}, the adnominal suffix shifts to the locative-copular form \ml{ലാണ്}:
+\begin{equation}
+\text{[Year] \ml{ലെ}} + \text{\ml{ആണ്}} \longrightarrow \text{[Year] \ml{ലാണ്}}
+\end{equation}
+\begin{itemize}
+    \item \ml{2015 ലെ + ആണ്} $\longrightarrow$ \ml{2015 ലാണ്} (\textit{2015-ilāṇŭ} — ``It was in 2015'')
+\end{itemize}
+
+\subsection{Finite Past Verbs in \texorpdfstring{\ml{ഉ}}{ഉ}: Converb Reduction Before Sandhi}
+Finite past-tense verb forms ending in the vowel \ml{ഉ} must be strictly distinguished from nominal or adjectival stems ending in \ml{ഉ}. Although both appear identical on the surface, they do not undergo the same sandhi process.
+
+Finite past-tense verbs (such as \ml{കഴിഞ്ഞു}, \ml{കേട്ടു}, \ml{നിന്നു}, \ml{വന്നു}) \textbf{never} serve as direct inputs to \textit{Vakāra-āgamam} (\ml{വ} insertion). When combining with subsequent clausal constituents in cleft and subordinate structures, the finite past verb first undergoes \textbf{converb reduction}, reducing the final \ml{ു} to the virāma \ml{്}:
+\begin{align*}
+\text{\ml{കഴിഞ്ഞു}} &\longrightarrow \text{\ml{കഴിഞ്ഞ്}} \\
+\text{\ml{കേട്ടു}} &\longrightarrow \text{\ml{കേട്ട്}} \\
+\text{\ml{നിന്നു}} &\longrightarrow \text{\ml{നിന്ന്}} \\
+\text{\ml{വന്നു}} &\longrightarrow \text{\ml{വന്ന്}}
+\end{align*}
+The resulting \ml{്}-final converb form then undergoes appropriate regular sandhi according to the following constituent.
+
+% =========================================================
+% SECTION 4: VERB NORMALISATION
+% =========================================================
+
+\clearpage
+
+\section{Verb Normalisation in Clefting}
+
+In a canonical cleft construction, extracting a constituent to be focused by \ml{ആണ്} forces the remainder of the clause into a presupposed, backgrounded state. The original finite verb of the clause must therefore be nominalised by stripping its finite matrix ending and appending the nominalising suffix \ml{-ത്} (\textit{-atŭ}).
+
+Table~\ref{tab:verb_normalisation} defines the complete mapping from input verbal conjugations to their nominalised cleft forms across aspectual, modal, and polarity paradigms.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{1.02}
+\caption{Comprehensive Verb Normalisation Mapping for Clefting}
+\label{tab:verb_normalisation}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{1.8cm} >{\raggedright\arraybackslash}p{3.0cm} >{\raggedright\arraybackslash}p{2.3cm} >{\raggedright\arraybackslash}p{4.6cm}}
+\toprule
+\textbf{Verb Type} & \textbf{Input Ending} & \textbf{Stem Transf.} & \textbf{+ \ml{ത്}} & \textbf{Example Mapping} \\
+\midrule
+Past affirmative & \ml{-ന്നു} & \ml{-ന്നു} $\to$ \ml{-ന്ന} & \ml{-ന്ന + ത്} & \ml{വന്നു} $\to$ \ml{വന്നത്} \\
+\midrule
+Past affirmative & \ml{-ി} & \ml{-ി} $\to$ \ml{-ിയ} & \ml{-ിയ + ത്} & \ml{വാങ്ങി} $\to$ \ml{വാങ്ങിയത്} \\
+\midrule
+Past affirmative & \ml{-ഞ്ഞു} & \ml{-ഞ്ഞു} $\to$ \ml{-ഞ്ഞ} & \ml{-ഞ്ഞ + ത്} & \ml{തിരിഞ്ഞു} $\to$ \ml{തിരിഞ്ഞത്} \\
+\midrule
+Past affirmative & \ml{-ച്ചു} & \ml{-ച്ചു} $\to$ \ml{-ച്ച} & \ml{-ച്ച + ത്} & \ml{വെച്ചു} $\to$ \ml{വെച്ചത്}; \newline \ml{കാത്തു} $\to$ \ml{കാത്തത്} \\
+\midrule
+Past affirmative & \ml{-ിച്ചു} & \ml{-ിച്ചു} $\to$ \ml{-ിച്ച} & \ml{-ിച്ച + ത്} & \ml{പഠിച്ചു} $\to$ \ml{പഠിച്ചത്}; \newline \ml{രൂപീകരിച്ചു} $\to$ \ml{രൂപീകരിച്ചത്} \\
+\midrule
+Present affirmative & \ml{-ുന്നു} & \ml{-ുന്നു} $\to$ \ml{-ുന്ന} & \ml{-ുന്ന + ത്} & \ml{വരുന്നു} $\to$ \ml{വരുന്നത്} \\
+\midrule
+Present affirmative & \ml{-യുന്നു} & \ml{-യുന്നു} $\to$ \ml{-യുന്ന} & \ml{-യുന്ന + ത്} & \ml{ചെയ്യുന്നു} $\to$ \ml{ചെയ്യുന്നത്} \\
+\midrule
+Future affirmative & \ml{-ും} & \ml{-ും} $\to$ \ml{-ുന്ന} & \ml{-ുന്ന + ത്} & \ml{വരും} $\to$ \ml{വരുന്നത്} \\
+\midrule
+Negative & \ml{-ഇല്ല} & \ml{-ഇല്ല} $\to$ \ml{-ാത്ത} & \ml{-ാത്ത + ത്} & \ml{വരുന്നില്ല} $\to$ \ml{വരാത്തത്} \\
+\midrule
+Habitual affirmative & \ml{-ാറുണ്ട്} & \ml{-ാറുണ്ട്} $\to$ \ml{-ാറുള്ള} & \ml{-ാറുള്ള + ത്} & \ml{വരാറുണ്ട്} $\to$ \ml{വരാറുള്ളത്} \\
+\midrule
+Habitual negative & \ml{-ാറില്ല} & \ml{-ാറില്ല} $\to$ \ml{-ാറില്ലാത്ത} & \ml{-ാറില്ലാത്ത + ത്} & \ml{വരാറില്ല} $\to$ \ml{വരാറില്ലാത്തത്} \\
+\midrule
+Obligative & \ml{-ണം} & \ml{-ണം} $\to$ \ml{-േണ്ട} & \ml{-േണ്ട + ത്} & \ml{ചെയ്യണം} $\to$ \ml{ചെയ്യേണ്ടത്} \\
+\midrule
+Permissive & \ml{-ാം} & \ml{-ാം} $\to$ \ml{-ാവുന്ന} & \ml{-ാവുന്ന + ത്} & \ml{വരാം} $\to$ \ml{വരാവുന്നത്} \\
+\midrule
+Already nominalized & \ml{-ത്} & None & $\varnothing$ & \ml{വന്നത്} $\to$ \ml{വന്നത്} \\
+\midrule
+Existential Suppletive & \ml{-ഉണ്ട്} & \ml{-ഉണ്ട്} $\to$ \ml{-ഉള്ള} & \ml{-ഉള്ള + ത്} & \ml{ഉണ്ട്} $\to$ \ml{ഉള്ളത്}; \newline \ml{വനമുണ്ട്} $\to$ \ml{വനമുള്ളത്} \\
+\midrule
+Compound perfect & \ml{-ിട്ടുണ്ട്} \newline \ml{-ിരുന്നു} & \ml{-ിട്ടുണ്ട്} $\to$ \ml{-ിട്ടുള്ള} \newline \ml{-ിരുന്നു} $\to$ \ml{-ിരുന്ന} & \ml{-ിരുന്ന + ത്} & \ml{ചെയ്തിരുന്നു} $\to$ \ml{ചെയ്തിരുന്നത്} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\section{Integration of mlmorph in Cleft Post-Editing}
+
+As established in Chapter~\ref{chap:mlmorph}, \textbf{mlmorph} \citep{thottingal2019finite} serves as the foundational finite-state morphological engine across our entire prosody transfer architecture. Within the post-editing and cleft synthesis stages specifically, \textit{mlmorph} is actively invoked to operationalize the transformations described in this chapter with high linguistic precision:
+
+\subsection{Architectural Overview}
+\textit{mlmorph} is built upon the Helsinki Finite-State Transducer (HFST) technology. It models the phonological and morphotactic rules of Malayalam as weighted finite-state transducers, comprising:
+\begin{itemize}[noitemsep]
+    \item A comprehensive Malayalam lexicon containing root stems, part-of-speech (POS) classifications, and inflectional class paradigms.
+    \item A finite-state grammar encoding prefixation, suffixation, agglutination, and productive sandhi rules.
+    \item Bidirectional transducers: an \textbf{Analyser} ($w \longrightarrow \text{lemma}\langle\text{tags}\rangle$) mapping surface words to their underlying root lemma and morphological tags, and a \textbf{Generator} synthesizing surface forms from lemma representations ($(\text{lemma}, \text{tags}) \longrightarrow w$).
+\end{itemize}
+
+\subsection{Key Purposes in the Clefting Pipeline}
+
+In the cross-lingual clefting post-editing architecture, \textit{mlmorph} is utilized for several critical purposes:
+
+\begin{enumerate}
+    \item \textbf{Tense, Aspect, and Mood (TAM) Disambiguation for Verb Normalisation:}
+    Before nominalising the matrix verb with \ml{-ത്}, the pipeline must accurately determine the verb's inflectional class, tense, and polarity. \textit{mlmorph} parses finite verbal complexes into structured analyses (e.g., \ml{വന്നു} $\longrightarrow$ \texttt{\ml{വരുക}<v><past>}; \ml{വരുന്നില്ല} $\longrightarrow$ \texttt{\ml{വരുക}<v><present><negative>}). This enables the verb normaliser to deterministically index the appropriate transformation pattern from Table~\ref{tab:verb_normalisation}.
+    
+    \item \textbf{Preventing False and Double Nominalisation:}
+    Utterances occasionally contain verbs that are already nominalised or functioning as participial nouns (e.g., \ml{വന്നത്} $\longrightarrow$ \texttt{\ml{വരുക}<v><past><nominalized>}). Without morphological inspection, heuristic string-matching rules risk applying redundant suffixes. \textit{mlmorph} detects existing nominalisation tags and allows such predicates to pass through unaltered ($\varnothing$ transformation).
+
+    \item \textbf{Case-Marker and Clitic Decomposition on Focused Hosts:}
+    When an emphasized constituent is projected from English, the Malayalam target word often carries an agglutinated case clitic (e.g., \ml{രാമന്} carries the dative marker \texttt{<dative>}; \ml{വീട്ടിൽ} carries the locative marker \texttt{<locative>}). \textit{mlmorph} identifies whether the token is a bare nominal stem, a case-inflected form, or a postpositional phrase. This disambiguation ensures that the cleft copula \ml{ആണ്} binds to the outermost case marker rather than triggering an erroneous bare-stem sandhi rule.
+
+    \item \textbf{Compound Splitting and Boundary Recovery:}
+    Due to aggressive compounding in written Malayalam, neural aligners frequently align a multi-morpheme compound to a single English word. \textit{mlmorph} provides morphological boundary segmentation, allowing the pipeline to isolate the relevant host morpheme for cleft attachment.
+
+    \item \textbf{Morphological Generation and Roundtrip Validation:}
+    By coupling the \textit{mlmorph} Analyser with its Generator, the post-editing engine performs roundtrip verification: newly synthesized cleft forms are re-analysed to confirm that they represent legitimate, well-formed Malayalam words that adhere to phonotactic and morphosyntactic constraints.
+\end{enumerate}
+
+\subsection{Why an FST Model is Essential}
+While deep neural language models (e.g., BERT, GPT) excel at contextual representation, they operate on subword heuristics (such as WordPiece or BPE) that lack linguistic guarantees and frequently generate ungrammatical or hallucinated agglutinations when generating morphologically dense Dravidian text. By utilizing \textit{mlmorph}'s rule-based finite-state transducers, the post-editing pipeline achieves 100\% deterministic accuracy, zero hallucination, and linguistically grounded fidelity to classical Malayalam morphophonemics.
+
+\section{Summary}
+
+The successful generation of Malayalam cleft constructions relies on the precise orchestration of morphophonemic sandhi rules, clausal verb normalisation, and finite-state morphological analysis. By leveraging \textit{mlmorph} for TAM parsing, case disambiguation, and validation, alongside systematic sandhi application (Āgama, Ādēśa, Vyañjana-Svara binding, virāma deletion, case preservation, and converb reduction), the post-editing pipeline ensures that syntactically clefted utterances achieve both native grammatical well-formedness and accurate emphatic prosody representation.

@@ -62,7 +62,7 @@ def test_awesome_pipeline_verbless_e2e():
     """
     Test end-to-end AwesomeCleftPipeline cross-lingual focus transfer for verbless sentences.
     """
-    pipeline = AwesomeCleftPipeline(aligner_type="syntactic")
+    pipeline = AwesomeCleftPipeline(aligner_type="morpho")
 
     en_sent = "As per Section 377 of the IPC, homosexuality is a crime in India."
     ml_sent = "ഇന്ത്യൻ ശിക്ഷാ നിയമം 377 പ്രകാരം സ്വവർഗ്ഗരതി ഇന്ത്യയിൽ കുറ്റകരം."

@@ -278,6 +278,8 @@ CORE_NOUN_MAP: Dict[str, Set[str]] = {
     "question": {"ചോദ്യം", "സംശയം"},
     "service": {"സേവനം", "സേവനമായി"},
     "system": {"സംവിധാനം", "സിസ്റ്റം"},
+    "game": {"ഗെയിം", "ഗെയിംസ്", "കളി", "മത്സരം"},
+    "games": {"ഗെയിംസ്", "കളികൾ", "മത്സരങ്ങൾ"},
 }
 
 
@@ -335,6 +337,8 @@ class PhoneticEntityMatcher:
                 "india": {"ഇന്ത്യ", "ഇന്ത്യൻ", "ഇന്ത്യയിൽ", "ഇന്ത്യയിലെ", "ഭാരതം"},
                 "indian": {"ഇന്ത്യൻ", "ഇന്ത്യയിലെ"},
                 "karate": {"കരാട്ടെ"},
+                "games": {"ഗെയിംസ്", "ഗെയിം"},
+                "game": {"ഗെയിം", "ഗെയിംസ്"},
                 "commonwealth": {"കോമൺവെൽത്ത്"},
                 "arizona": {"അരിസോണ", "അരിസോണയിൽ"},
                 "canyon": {"കാൻയോൺ"},
@@ -389,7 +393,9 @@ class PhoneticEntityMatcher:
                 i += 1
 
         ml_cons = [ch for ch in ml_word if ('\u0D15' <= ch <= '\u0D3A' or ch in ('ൺ', 'ൻ', 'ർ', 'ൽ', 'ൾ', 'ൿ'))]
-        if not en_cons or not ml_cons:
+        if not en_cons or not ml_cons or len(en_cons) < 2 or len(ml_cons) < 2:
+            return 0.0
+        if ml_word in ("ലെ", "ന്റെ", "ുടെ", "ിന്റെ", "്റെ", "ൽ", "ിൽ", "ത്തിൽ", "ത്ത്", "ന്", "ക്ക്", "നെ", "ആണ്", "ഒരു"):
             return 0.0
 
         matches = 0
@@ -501,7 +507,7 @@ class SyntacticChinker:
 
         elif c_type == "NP":
             for idx, w in zip(span_indices, clean_words):
-                if w in ("ഒരു", "ഈ", "ആ", "ഏത്"):
+                if w in ("ഒരു", "ഈ", "ആ", "ഏത്", "ലെ", "ന്റെ", "ുടെ", "ിന്റെ", "്റെ") or w in POSTPOSITIONS:
                     function_indices.append(idx)
                 else:
                     content_indices.append(idx)
@@ -739,10 +745,11 @@ class StandaloneSyntacticAligner:
                     used_en_tokens.add(en_idx)
                     used_ml_tokens.add(best_tgt)
                 elif ec["head_token_idx"] == en_idx and mc["head_token_idx"] not in used_ml_tokens:
-                    # Head-to-head alignment fallback within phrase
-                    token_pairs.append((en_idx, mc["head_token_idx"], "SYNTACTIC_HEAD_PROJECTION"))
-                    used_en_tokens.add(en_idx)
-                    used_ml_tokens.add(mc["head_token_idx"])
+                    ml_h_tok = strip_punctuation(ml_tokens[mc["head_token_idx"]])
+                    if ml_h_tok not in ("ലെ", "ന്റെ", "ുടെ", "ിന്റെ", "്റെ", "ൽ", "ിൽ", "ത്തിൽ"):
+                        token_pairs.append((en_idx, mc["head_token_idx"], "SYNTACTIC_HEAD_PROJECTION"))
+                        used_en_tokens.add(en_idx)
+                        used_ml_tokens.add(mc["head_token_idx"])
 
             # 4b. Functional word alignment (Preposition <-> Postposition)
             for en_fn in ec["function_indices"]:

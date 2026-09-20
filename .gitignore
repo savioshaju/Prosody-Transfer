@@ -6,6 +6,8 @@ __pycache__/
 *$py.class
 test/
 awesome-align/
+*service_account*.json
+*credentials*.json
 
 # ==============================================
 # Virtual Environments
@@ -69,5 +71,15 @@ $RECYCLE.BIN/
 books/
 *.pdf
 scratch/
+
+# LaTeX compilation auxiliary files
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
 
 bhashik_generic_english_malayalam*

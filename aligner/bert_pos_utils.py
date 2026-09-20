@@ -8,12 +8,9 @@ class BertPosTagger:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
             self.model = AutoModelForTokenClassification.from_pretrained(model_name, local_files_only=True)
         except Exception:
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                self.model = AutoModelForTokenClassification.from_pretrained(model_name)
-            except Exception:
-                self.tokenizer = None
-                self.model = None
+            # Gated repository or local files missing — failover immediately to rule-based morphological tagger
+            self.tokenizer = None
+            self.model = None
         if self.model is not None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model.to(self.device)

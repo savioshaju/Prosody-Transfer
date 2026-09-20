@@ -475,6 +475,17 @@ class VerbNormalizer:
             result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
             return result
 
+        # 3. Past copula / auxiliary predicate suffix: -ആയിരുന്നു / -യിരുന്നു → -യിരുന്നത്
+        # e.g., അഭിനയമായിരുന്നു → അഭിനയമായിരുന്നത്, സന്തോഷമായിരുന്നു → സന്തോഷമായിരുന്നത്, ആയിരുന്നു → ആയിരുന്നത്
+        if verb.endswith("യിരുന്നു"):
+            norm_form = verb[:-len("യിരുന്നു")] + "യിരുന്നത്"
+            result["status"] = "VALID"
+            result["normalized"] = norm_form
+            result["verb_class"] = CLASS_TENSE_POS
+            result["normalized_analysis"] = f"{norm_form}<v><adv-clause-rp-past><n><deriv>"
+            return result
+
+
         # Step 1: Analyse
         raw_analyses = self._analyser.analyse(verb)
         if not raw_analyses:
