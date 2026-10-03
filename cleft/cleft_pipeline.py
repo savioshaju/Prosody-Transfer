@@ -223,6 +223,24 @@ def detect_structural_status(
     clean_fw = strip_punctuation(focused_word).strip()
     focused_pos_upper = (focused_pos or "").upper()
 
+    # Semantic Specificity & Polarity Constraints (Mohanan & Mohanan 1999; Jayaseelan 2001)
+    # Clefting is incompatible with non-specific epistemic indefinites (-ō) and Negative Polarity Items (-um).
+    non_specific_indefinites = {
+        "ആരോ", "എന്തോ", "എവിടെയോ", "എങ്ങോട്ടോ", "എപ്പോഴോ", "എങ്ങനെയോ",
+        "ആരെയോ", "ആർക്കോ", "ആരുടെയോ", "എന്തിനെയോ", "ഏതോ"
+    }
+    negative_polarity_items = {
+        "ഒന്നും", "ആരും", "ഒരിക്കലും", "എങ്ങും", "ഒരിടത്തും", "ആരെയും",
+        "ആർക്കും", "ആരുടെയും", "ഒന്നിനെയും", "ഒന്നിനും", "ഒന്നിന്റെയും"
+    }
+    if clean_fw in non_specific_indefinites or (
+        clean_fw.endswith(("യോ", "ഓ")) and any(clean_fw.startswith(p) for p in ("ആര", "എന്ത", "എവിട", "എങ്ങ", "എപ്പ", "ഏത"))
+    ):
+        return "SUB_CONSTITUENT", f"Non-specific epistemic indefinite '{focused_word}' cannot be clefted (M&M 1999 specificity filter)"
+
+    if clean_fw in negative_polarity_items:
+        return "SUB_CONSTITUENT", f"Negative Polarity Item '{focused_word}' cannot be clefted (Jayaseelan 2001 Ex. 31a NPI filter)"
+
     if focus_span is None and tokens:
         focus_span = find_focus_span_indices(tokens, focused_word)
 
