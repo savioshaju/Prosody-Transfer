@@ -194,9 +194,28 @@ class SimAlignerWrapper:
 
         coverage = aligned_src_lexical / max(src_lexical_count, 1)
 
+        aligned_pairs = [(p["src_word"], p["tgt_word"]) for p in final_pairs]
+        tgt_to_src = [
+            {
+                "tgt_index": p["tgt_index"],
+                "tgt_word": p["tgt_word"],
+                "src_index": p["src_index"],
+                "src_word": p["src_word"],
+                "is_lexical": p.get("is_lexical", True),
+                "is_punctuation_only": p.get("is_punctuation_only", False),
+                "confidence": p.get("confidence", "HIGH"),
+            }
+            for p in final_pairs
+        ]
+
         return {
             "source_tokens": sent_src,
             "target_tokens": sent_tgt,
+            "src_tokens": sent_src,
+            "tgt_tokens": sent_tgt,
+            "aligned_pairs": aligned_pairs,
+            "src_to_tgt_alignments": final_pairs,
+            "tgt_to_src_alignments": tgt_to_src,
             "reconciled_pairs": final_pairs,
             "unaligned_source_words": unaligned_src,
             "unaligned_target_words": unaligned_tgt,

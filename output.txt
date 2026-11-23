@@ -1,0 +1,90 @@
+================================================================================
+1. English Sentence            : Raman gave Krishnan two books yesterday.
+2. Original Malayalam Sentence : രാമൻ ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം കൊടുത്തു.
+3. English Focus Marker        : Raman
+4. Selected Malayalam Focus    : രാമൻ
+   * original_focus            : Raman
+   * selected_constituent      : രാമൻ
+   * focus_type                : —
+   * projection                : —
+
+--------------------------------------------------------------------------------
+--- Malayalam Focus Candidates (Focus Projection) ---
+--------------------------------------------------------------------------------
+  Focus Projection Summary:
+    * original_focus       : Raman
+    * selected_constituent : രാമൻ
+    * focus_type           : —
+    * projection           : —
+
+  * Selected: 'രാമൻ'
+
+--------------------------------------------------------------------------------
+--- Pre-Cleft Word Alignments (English -> Malayalam) ---
+--------------------------------------------------------------------------------
+  Raman                     <---> രാമൻ                     
+  Krishnan                  <---> കൃഷ്ണന്                  
+  two                       <---> രണ്ട്                    
+  books                     <---> പുസ്തകം                  
+  .                         <---> .                        
+
+--------------------------------------------------------------------------------
+--- Clefting Pipeline Output & Diagnostics ---
+--------------------------------------------------------------------------------
+  * Emphasized Malayalam Sentence             : രാമനാണ് ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം കൊടുത്തത്.
+  * Prosody Label Sequence (Source / English)  : [1, 0, 0, 0, 0, 0]
+  * Prosody Label Sequence (Target / Malayalam): [1, 0, 0, 0, 0, 0]
+  * Focus Position (Before -> After)          : [0] -> [0]
+  * ആണ് Attachment                : രാമനാണ് (attached to focused_constituent 'രാമൻ')
+  * Nominalized Verb              : കൊടുത്തത്
+  * Strategy Route                : CLEFT
+  * Pipeline Status               : VALID
+
+--------------------------------------------------------------------------------
+--- Post-Cleft Alignment (Malayalam -> English) ---
+--------------------------------------------------------------------------------
+  [0] രാമനാണ്                   ---> [0] Raman                    
+  [0] രാമനാണ്                   ---> [1] gave                     
+  [1] ഇന്നലെ                    ---> [0] Raman                    
+  [1] ഇന്നലെ                    ---> [2] Krishnan                 
+  [2] കൃഷ്ണന്                   ---> [2] Krishnan                 
+  [3] രണ്ട്                     ---> [3] two                      
+  [4] പുസ്തകം                   ---> [4] books                    
+  [6] .                         ---> [6] .                        
+
+--------------------------------------------------------------------------------
+--- Post-Cleft Alignment (English -> Malayalam) ---
+--------------------------------------------------------------------------------
+  [0] Raman                     ---> [0] രാമനാണ്                  
+  [1] gave                      ---> [0] രാമനാണ്                  
+  [2] Krishnan                  ---> [1] ഇന്നലെ                   
+  [2] Krishnan                  ---> [2] കൃഷ്ണന്                  
+  [3] two                       ---> [3] രണ്ട്                    
+  [4] books                     ---> [4] പുസ്തകം                  
+  [5] yesterday                 ---> [1] ഇന്നലെ                   
+  [6] .                         ---> [6] .                        
+
+════════════════════════════════════════════════════════════════════════════════
+EMPHASIS METHOD COMPARISON
+════════════════════════════════════════════════════════════════════════════════
+
+--------------------------------------------------------------------------------
+--- BRANCH A: CLEFTING ---
+--------------------------------------------------------------------------------
+  * Cleft Output (Emphasized)    : രാമനാണ് ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം കൊടുത്തത്.
+  * (No positional cleft reorderings produced.)
+
+--------------------------------------------------------------------------------
+--- BRANCH B: PREVERBAL FOCUS POSITIONING (Jayaseelan 2023 Dravidian SOV Architecture) ---
+--------------------------------------------------------------------------------
+  * Status                       : APPLICABLE
+  * Reordered Output (Full Text) : ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം രാമൻ കൊടുത്തു.
+  * Movement Vector (Spec-FocP)  : 1 -> 5 (position 1 -> position 5)
+  * Constituent Type             : NP
+  * Isolated Clause (Before)     : രാമൻ ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം കൊടുത്തു
+  * Isolated Clause (After)      : ഇന്നലെ കൃഷ്ണന് രണ്ട് പുസ്തകം രാമൻ കൊടുത്തു
+  * Constituents (Before)        : ['NP(രാമൻ)', 'AdvP(ഇന്നലെ)', 'NP(കൃഷ്ണന്)', 'NP(രണ്ട്)', 'NP(പുസ്തകം)', 'V(കൊടുത്തു)']
+  * Constituents (After)         : ['AdvP(ഇന്നലെ)', 'NP(കൃഷ്ണന്)', 'NP(രണ്ട്)', 'NP(പുസ്തകം)', 'FOC:NP(രാമൻ)', 'V(കൊടുത്തു)']
+  * Reason                       : Moved focused constituent 'രാമൻ' [NP] from position 1 to immediate preverbal position 5 (Spec-FocP), with non-focused constituents raised to topic positions (TopP*) preserving relative order (Jayaseelan 2023).
+
+════════════════════════════════════════════════════════════════════════════════

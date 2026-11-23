@@ -254,7 +254,10 @@ class AwesomeAlignerWrapper:
             "tgt_sentence": tgt_sentence,
             "src_tokens": sent_src,
             "tgt_tokens": sent_tgt,
+            "source_tokens": sent_src,
+            "target_tokens": sent_tgt,
             "aligned_pairs": aligned_pairs,
+            "reconciled_pairs": reconciled_pairs,
             "src_to_tgt_alignments": src_to_tgt,
             "tgt_to_src_alignments": tgt_to_src,
         }
@@ -983,8 +986,18 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     lines.append("-" * 80)
     lines.append("--- Pre-Cleft Word Alignments (English -> Malayalam) ---")
     lines.append("-" * 80)
-    for pair in res.get("pre_cleft_en_to_ml_alignment", {}).get("aligned_pairs", []):
-        lines.append(f"  {pair[0]:<25} <---> {pair[1]:<25}")
+    pre_align = res.get("pre_cleft_en_to_ml_alignment", {})
+    pre_pairs = pre_align.get("aligned_pairs")
+    if not pre_pairs and "reconciled_pairs" in pre_align:
+        pre_pairs = [(p["src_word"], p["tgt_word"]) for p in pre_align["reconciled_pairs"]]
+    elif not pre_pairs and "src_to_tgt_alignments" in pre_align:
+        pre_pairs = [(p["src_word"], p["tgt_word"]) for p in pre_align["src_to_tgt_alignments"]]
+
+    if pre_pairs:
+        for pair in pre_pairs:
+            lines.append(f"  {pair[0]:<25} <---> {pair[1]:<25}")
+    else:
+        lines.append("  (No word alignments found)")
 
     # --- Clefting Pipeline Output ---
     cleft = res.get("cleft_pipeline_output", {})
@@ -1009,15 +1022,25 @@ def generate_pipeline_report(res: Dict[str, Any]) -> str:
     lines.append("\n" + "-" * 80)
     lines.append("--- Post-Cleft Alignment (Malayalam -> English) ---")
     lines.append("-" * 80)
-    for item in res.get("post_cleft_ml_to_en_alignment", {}).get("src_to_tgt_alignments", []):
-        lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
+    post_ml_en = res.get("post_cleft_ml_to_en_alignment", {})
+    items_ml_en = post_ml_en.get("src_to_tgt_alignments") or post_ml_en.get("reconciled_pairs") or []
+    if items_ml_en:
+        for item in items_ml_en:
+            lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
+    else:
+        lines.append("  (No alignments found)")
 
     # --- Post-cleft English -> Malayalam Alignment ---
     lines.append("\n" + "-" * 80)
     lines.append("--- Post-Cleft Alignment (English -> Malayalam) ---")
     lines.append("-" * 80)
-    for item in res.get("post_cleft_en_to_ml_alignment", {}).get("src_to_tgt_alignments", []):
-        lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
+    post_en_ml = res.get("post_cleft_en_to_ml_alignment", {})
+    items_en_ml = post_en_ml.get("src_to_tgt_alignments") or post_en_ml.get("reconciled_pairs") or []
+    if items_en_ml:
+        for item in items_en_ml:
+            lines.append(f"  [{item['src_index']}] {item['src_word']:<25} ---> [{item['tgt_index']}] {item['tgt_word']:<25}")
+    else:
+        lines.append("  (No alignments found)")
 
     # ═══════════════════════════════════════════════════════════
     # Parallel Emphasis Methods: CLEFTING vs REORDERING
